@@ -42,6 +42,7 @@ public class Time {
     }
 
     /**
+     * System.currentTimeMills只是精确到毫秒，这个方法让时间精确到纳秒，让日期更精确
      * This is to convert the elapsedTime to a Date.
      * @return A date object indicated by the elapsedTime.
      */

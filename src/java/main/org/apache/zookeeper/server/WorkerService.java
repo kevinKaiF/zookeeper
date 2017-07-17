@@ -18,17 +18,13 @@
 
 package org.apache.zookeeper.server;
 
-import java.util.ArrayList;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.TimeUnit;
-
 import org.apache.zookeeper.common.Time;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * WorkerService is a worker thread pool for running tasks and is implemented
@@ -53,6 +49,7 @@ public class WorkerService {
 
     private final String threadNamePrefix;
     private int numWorkerThreads;
+    // true表示可分配的，ExecutorService有多个worker线程，否则就是单线程
     private boolean threadsAreAssignable;
     private long shutdownTimeoutMS = 5000;
 

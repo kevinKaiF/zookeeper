@@ -403,6 +403,8 @@ public class ClientCnxnSocketNetty extends ClientCnxnSocket {
             updateNow();
             ChannelBuffer buf = (ChannelBuffer) e.getMessage();
             while (buf.readable()) {
+                // 如果incomingBuffer还有数据，那么再扩大limit，防止数据被覆盖，
+                // 如果首次读取incomingBuffer为lenBuffer，不会执行if，读取Packet中4字节的长度
                 if (incomingBuffer.remaining() > buf.readableBytes()) {
                     int newLimit = incomingBuffer.position()
                             + buf.readableBytes();

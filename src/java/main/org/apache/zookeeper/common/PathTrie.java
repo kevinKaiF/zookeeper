@@ -245,6 +245,7 @@ public class PathTrie {
      * @param path the input path
      * @return the largest prefix for the input path.
      */
+    // 获取最长路径的前缀
     public String findMaxPrefix(String path) {
         if (path == null) {
             return null;
@@ -254,6 +255,7 @@ public class PathTrie {
         }
         String[] pathComponents = path.split("/");
         TrieNode parent = rootNode;
+        // 保存解析到的子节点
         List<String> components = new ArrayList<String>();
         if (pathComponents.length <= 1) {
             throw new IllegalArgumentException("Invalid path " + path);

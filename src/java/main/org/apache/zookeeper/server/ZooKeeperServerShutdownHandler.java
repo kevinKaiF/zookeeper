@@ -17,9 +17,9 @@
  */
 package org.apache.zookeeper.server;
 
-import java.util.concurrent.CountDownLatch;
-
 import org.apache.zookeeper.server.ZooKeeperServer.State;
+
+import java.util.concurrent.CountDownLatch;
 
 /**
  * ZooKeeper server shutdown handler which will be used to handle ERROR or

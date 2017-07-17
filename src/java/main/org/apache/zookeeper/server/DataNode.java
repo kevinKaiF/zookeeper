@@ -30,6 +30,12 @@ import org.apache.zookeeper.data.Stat;
 import org.apache.zookeeper.data.StatPersisted;
 
 /**
+ * DataNode的数据结构：
+ * byte[]表示节点的数据
+ * long表示节点的acl权限
+ * StatPersisted表示节点统计
+ * Set<String>表示节点的children
+ *
  * This class contains the data for a node in the data tree.
  * <p>
  * A data node contains a reference to its parent, a byte array as its data, an
@@ -135,6 +141,7 @@ public class DataNode implements Record {
         return Collections.unmodifiableSet(children);
     }
 
+    // 获取data的近似长度
     public synchronized long getApproximateDataSize() {
         if(null==data) return 0;
         return data.length;
@@ -163,6 +170,7 @@ public class DataNode implements Record {
 
     private static long getClientEphemeralOwner(StatPersisted stat) {
         EphemeralType ephemeralType = EphemeralType.get(stat.getEphemeralOwner());
+        // 非NORMAL 类型直接返回0
         if (ephemeralType != EphemeralType.NORMAL) {
             return 0;
         }

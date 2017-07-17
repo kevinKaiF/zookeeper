@@ -18,15 +18,17 @@
 
 package org.apache.zookeeper.server;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.File;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.TimeUnit;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
+ * 定时清理日志数据
+ *
  * This class manages the cleanup of snapshots and corresponding transaction
  * logs by scheduling the auto purge task with the specified
  * 'autopurge.purgeInterval'. It keeps the most recent
@@ -123,9 +125,9 @@ public class DatadirCleanupManager {
     }
 
     static class PurgeTask extends TimerTask {
-        private File logsDir;
-        private File snapsDir;
-        private int snapRetainCount;
+        private File logsDir;   // 日志目录
+        private File snapsDir;  // 快照目录
+        private int snapRetainCount; // 快照获取的数量
 
         public PurgeTask(File dataDir, File snapDir, int count) {
             logsDir = dataDir;
@@ -137,6 +139,7 @@ public class DatadirCleanupManager {
         public void run() {
             LOG.info("Purge task started.");
             try {
+                // 清理快照和事务日志
                 PurgeTxnLog.purge(logsDir, snapsDir, snapRetainCount);
             } catch (Exception e) {
                 LOG.error("Error occurred while purging.", e);

@@ -18,20 +18,6 @@
 
 package org.apache.zookeeper.server;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.util.Collection;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
-
 import org.apache.jute.BinaryOutputArchive;
 import org.apache.jute.InputArchive;
 import org.apache.jute.OutputArchive;
@@ -57,7 +43,19 @@ import org.apache.zookeeper.txn.TxnHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
+
 /**
+ * 维护zookeeper server 状态的内存数据库，包括sessions，dataTree和committed logs。
+ * 读取日志和快照后启动
+ *
  * This class maintains the in memory database of zookeeper
  * server states that includes the sessions, datatree and the
  * committed logs. It is booted up  after reading the logs
@@ -72,6 +70,7 @@ public class ZKDatabase {
      * all these members.
      */
     protected DataTree dataTree;
+    // sessionId与timeout的映射
     protected ConcurrentHashMap<Long, Integer> sessionsWithTimeouts;
     protected FileTxnSnapLog snapLog;
     protected long minCommittedLog, maxCommittedLog;
@@ -85,6 +84,7 @@ public class ZKDatabase {
     public static final int commitLogCount = 500;
     protected static int commitLogBuffer = 700;
     protected LinkedList<Proposal> committedLog = new LinkedList<Proposal>();
+    // TODO
     protected ReentrantReadWriteLock logLock = new ReentrantReadWriteLock();
     volatile private boolean initialized = false;
 
@@ -343,6 +343,7 @@ public class ZKDatabase {
      * remove a cnxn from the datatree
      * @param cnxn the cnxn to remove from the datatree
      */
+    // 从内存中的dataTree中移除serverCnxn
     public void removeCnxn(ServerCnxn cnxn) {
         dataTree.removeCnxn(cnxn);
     }
@@ -497,6 +498,7 @@ public class ZKDatabase {
      * @return true if the truncate is successful and false if not
      * @throws IOException
      */
+    // truncate的时候清空内存数据，重新加载
     public boolean truncateLog(long zxid) throws IOException {
         clear();
 
@@ -516,6 +518,7 @@ public class ZKDatabase {
      * @param ia the input archive you want to deserialize from
      * @throws IOException
      */
+    // 清空内存数据，从流中反序列化数据
     public void deserializeSnapshot(InputArchive ia) throws IOException {
         clear();
         SerializeUtils.deserializeSnapshot(getDataTree(),ia,getSessionWithTimeOuts());
@@ -538,6 +541,7 @@ public class ZKDatabase {
      * @param si the request to append
      * @return true if the append was succesfull and false if not
      */
+    // 写出到data目录下
     public boolean append(Request si) throws IOException {
         return this.snapLog.append(si);
     }
@@ -545,6 +549,7 @@ public class ZKDatabase {
     /**
      * roll the underlying log
      */
+    // 刷出data日志文件，并关闭文件流
     public void rollLog() throws IOException {
         this.snapLog.rollLog();
     }
@@ -553,6 +558,7 @@ public class ZKDatabase {
      * commit to the underlying transaction log
      * @throws IOException
      */
+    // 刷出data日志文件数据到磁盘
     public void commit() throws IOException {
         this.snapLog.commit();
     }

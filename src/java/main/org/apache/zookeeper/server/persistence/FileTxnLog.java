@@ -17,16 +17,13 @@
  */
 package org.apache.zookeeper.server.persistence;
 
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.EOFException;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.FilterInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.RandomAccessFile;
+import org.apache.jute.*;
+import org.apache.zookeeper.server.util.SerializeUtils;
+import org.apache.zookeeper.txn.TxnHeader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -34,17 +31,6 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.Adler32;
 import java.util.zip.Checksum;
-
-import org.apache.jute.BinaryInputArchive;
-import org.apache.jute.BinaryOutputArchive;
-import org.apache.jute.InputArchive;
-import org.apache.jute.OutputArchive;
-import org.apache.jute.Record;
-import org.apache.zookeeper.server.persistence.TxnLog.TxnIterator;
-import org.apache.zookeeper.server.util.SerializeUtils;
-import org.apache.zookeeper.txn.TxnHeader;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * This class implements the TxnLog interface. It provides api's
@@ -91,6 +77,7 @@ import org.slf4j.LoggerFactory;
 public class FileTxnLog implements TxnLog {
     private static final Logger LOG;
 
+    // 预分配大小64M
     static long preAllocSize =  65536 * 1024;
 
     public final static int TXNLOG_MAGIC =
@@ -119,6 +106,7 @@ public class FileTxnLog implements TxnLog {
         fsyncWarningThresholdMS = fsyncWarningThreshold;
     }
 
+    // 记录最后一次zxid
     long lastZxidSeen;
     volatile BufferedOutputStream logStream = null;
     volatile OutputArchive oa;
@@ -160,6 +148,8 @@ public class FileTxnLog implements TxnLog {
 
 
     /**
+     * 刷出当前日志文件，开始新的日志文件
+     *
      * rollover the current log file to a new one.
      * @throws IOException
      */
@@ -204,12 +194,14 @@ public class FileTxnLog implements TxnLog {
                     LOG.info("Creating new log file: log." +  
                             Long.toHexString(hdr.getZxid()));
                }
-               
+
+                // 日志文件名格式log.zxid
                logFileWrite = new File(logDir, ("log." + 
                        Long.toHexString(hdr.getZxid())));
                fos = new FileOutputStream(logFileWrite);
                logStream=new BufferedOutputStream(fos);
                oa = BinaryOutputArchive.getArchive(logStream);
+                // 写入FileHeader
                FileHeader fhdr = new FileHeader(TXNLOG_MAGIC,VERSION, dbId);
                fhdr.serialize(oa, "fileheader");
                // Make sure that the magic number is written before padding.
@@ -217,7 +209,9 @@ public class FileTxnLog implements TxnLog {
                currentSize = fos.getChannel().position();
                streamsToFlush.add(fos);
             }
+            // 扩大currentSize
             padFile(fos);
+            // 序列化TxnHeader
             byte[] buf = Util.marshallTxnEntry(hdr, txn);
             if (buf == null || buf.length == 0) {
                 throw new IOException("Faulty serialization for header " +
@@ -225,7 +219,9 @@ public class FileTxnLog implements TxnLog {
             }
             Checksum crc = makeChecksumAlgorithm();
             crc.update(buf, 0, buf.length);
+            // 写出校验和
             oa.writeLong(crc.getValue(), "txnEntryCRC");
+            // 写出TxnHeader
             Util.writeTxnBytes(oa, buf);
             
             return true;
@@ -243,6 +239,9 @@ public class FileTxnLog implements TxnLog {
     }
 
     /**
+     * 获取snapshotZxid之前的logDirList中的文件
+     * 注意：仅仅获取刚好小于snapshotZxid的日志文件
+     *
      * Find the log file that starts at, or just before, the snapshot. Return
      * this and all subsequent logs. Results are ordered by zxid of file,
      * ascending order.
@@ -251,6 +250,7 @@ public class FileTxnLog implements TxnLog {
      * @return
      */
     public static File[] getLogFiles(File[] logDirList,long snapshotZxid) {
+        // 升序排列logFile
         List<File> files = Util.sortDataDir(logDirList, "log", true);
         long logZxid = 0;
         // Find the log file that starts before or at the same time as the
@@ -262,6 +262,7 @@ public class FileTxnLog implements TxnLog {
             }
             // the files
             // are sorted with zxid's
+            // 保存上次的zxid，因为已经排序过了
             if (fzxid > logZxid) {
                 logZxid = fzxid;
             }
@@ -283,7 +284,9 @@ public class FileTxnLog implements TxnLog {
      * @return the last zxid logged in the transaction logs
      */
     public long getLastLoggedZxid() {
+        // 升序排列文件
         File[] files = getLogFiles(logDir.listFiles(), 0);
+        // 获取最后一个文件的zxid
         long maxLog=files.length>0?
                 Util.getZxidFromName(files[files.length-1].getName(),"log"):-1;
 
@@ -293,10 +296,10 @@ public class FileTxnLog implements TxnLog {
         TxnIterator itr = null;
         try {
             FileTxnLog txn = new FileTxnLog(logDir);
+            // 找到刚好大于等于maxLog的logFile
             itr = txn.read(maxLog);
-            while (true) {
-                if(!itr.next())
-                    break;
+            while (itr.next()) {
+                // 如果还有数据，继续读取，一直读到最大的zxid
                 TxnHeader hdr = itr.getHeader();
                 zxid = hdr.getZxid();
             }
@@ -306,6 +309,12 @@ public class FileTxnLog implements TxnLog {
             close(itr);
         }
         return zxid;
+    }
+
+    public static void main(String[] args) {
+        File logDir = new File("D:\\zookeeper\\zookeeper-3.4.9_a\\log\\version-2");
+        FileTxnLog fileTxnLog = new FileTxnLog(logDir);
+        System.out.println(fileTxnLog.getLastLoggedZxid());
     }
 
     private void close(TxnIterator itr) {
@@ -326,15 +335,17 @@ public class FileTxnLog implements TxnLog {
         if (logStream != null) {
             logStream.flush();
         }
+        // 刷出到磁盘
         for (FileOutputStream log : streamsToFlush) {
             log.flush();
             if (forceSync) {
                 long startSyncNS = System.nanoTime();
-
+                // 仅仅刷出数据到磁盘，不刷出文件的元数据，对应linux的函数fdatasync
                 log.getChannel().force(false);
 
                 long syncElapsedMS =
                     TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startSyncNS);
+                // 同步刷出时延阈值
                 if (syncElapsedMS > fsyncWarningThresholdMS) {
                     LOG.warn("fsync-ing the write ahead log in "
                             + Thread.currentThread().getName()
@@ -355,7 +366,9 @@ public class FileTxnLog implements TxnLog {
      * @return returns an iterator to iterate through the transaction
      * logs
      */
+    // 这里的读取是升序读取zxid
     public TxnIterator read(long zxid) throws IOException {
+        // 持续向后读取
         return read(zxid, true);
     }
 
@@ -380,6 +393,7 @@ public class FileTxnLog implements TxnLog {
     public boolean truncate(long zxid) throws IOException {
         FileTxnIterator itr = null;
         try {
+            // 找到zxid，或者最接近zxid的文件，一直读取到大于等于zxid
             itr = new FileTxnIterator(this.logDir, zxid);
             PositionInputStream input = itr.inputStream;
             if(input == null) {
@@ -387,11 +401,14 @@ public class FileTxnLog implements TxnLog {
                         "happen if you still have snapshots from an old setup or " +
                         "log files were deleted accidentally or dataLogDir was changed in zoo.cfg.");
             }
+            // 获取读取的字节数目
             long pos = input.getPosition();
             // now, truncate at the current position
             RandomAccessFile raf=new RandomAccessFile(itr.logFile,"rw");
+            // 设置文件位置，截取文件，此位置刚好是大于等于zxid的位置
             raf.setLength(pos);
             raf.close();
+            // 如果还有新的文件，则删除老的log file
             while(itr.goToNextLog()) {
                 if (!itr.logFile.delete()) {
                     LOG.warn("Unable to truncate {}", itr.logFile);
@@ -549,6 +566,7 @@ public class FileTxnLog implements TxnLog {
             this.zxid = zxid;
             init();
 
+            // 如果向后读取，而且TxnHeader存在，则查找大于zxid的hdr
             if (fastForward && hdr != null) {
                 while (hdr.getZxid() < zxid) {
                     if (!next())
@@ -572,20 +590,26 @@ public class FileTxnLog implements TxnLog {
          * this is inclusive of the zxid
          * @throws IOException
          */
+        // 初始化需要读取的文件，存入storedFiles
+        // 筛选的时候，只获取大于zxid的文件（N个），以及刚好小于zxid的文件（1个）
         void init() throws IOException {
             storedFiles = new ArrayList<File>();
+            // 降序获取文件
             List<File> files = Util.sortDataDir(FileTxnLog.getLogFiles(logDir.listFiles(), 0), "log", false);
             for (File f: files) {
                 if (Util.getZxidFromName(f.getName(), "log") >= zxid) {
                     storedFiles.add(f);
                 }
                 // add the last logfile that is less than the zxid
+                // 获取最后一个小于zxid的logfile
                 else if (Util.getZxidFromName(f.getName(), "log") < zxid) {
                     storedFiles.add(f);
                     break;
                 }
             }
+            // 获取最后一个/最老的日志文件
             goToNextLog();
+            // 反序列化
             if (!next())
                 return;
         }
@@ -609,7 +633,9 @@ public class FileTxnLog implements TxnLog {
          */
         private boolean goToNextLog() throws IOException {
             if (storedFiles.size() > 0) {
+                // 移除最后一个文件
                 this.logFile = storedFiles.remove(storedFiles.size()-1);
+                // 创建inputStream
                 ia = createInputArchive(this.logFile);
                 return true;
             }
@@ -617,6 +643,7 @@ public class FileTxnLog implements TxnLog {
         }
 
         /**
+         * 读取FileHeader，并校验魔数
          * read the header from the inputarchive
          * @param ia the inputarchive to be read from
          * @param is the inputstream
@@ -635,8 +662,8 @@ public class FileTxnLog implements TxnLog {
 
         /**
          * Invoked to indicate that the input stream has been created.
-         * @param ia input archive
-         * @param is file input stream associated with the input archive.
+//         * @param ia input archive
+//         * @param is file input stream associated with the input archive.
          * @throws IOException
          **/
         protected InputArchive createInputArchive(File logFile) throws IOException {
@@ -663,6 +690,11 @@ public class FileTxnLog implements TxnLog {
          * @return true if there is more transactions to be read
          * false if not.
          */
+        // 这里的next非常有意思，一直读取文件，如果读到文件的额末尾，就抛出自定义的EOFException异常，并将其捕捉，表示此文件已经读完了
+        // 为什么要自定义异常？异常就是一种标识，通过自定义的异常，明确的识别出文件已读取完毕
+        // 然后关闭流，
+        // 接着查看storedFiles里面是否还有文件需要读取，如果有则递归一次执行next
+        // 否则返回false，表示不需要再读取了
         public boolean next() throws IOException {
             if (ia == null) {
                 return false;

@@ -27,38 +27,46 @@ public class ZooKeeperServerConf {
     /**
      * The key in the map returned by {@link #toMap()} for the client port.
      */
+    // 客户端端口号
     public static final String KEY_CLIENT_PORT = "client_port";
     /**
      * The key in the map returned by {@link #toMap()} for the data directory.
      */
+    // 数据目录
     public static final String KEY_DATA_DIR = "data_dir";
     /**
      * The key in the map returned by {@link #toMap()} for the data log
      * directory.
      */
+    // 数据日志陆慕
     public static final String KEY_DATA_LOG_DIR = "data_log_dir";
     /**
      * The key in the map returned by {@link #toMap()} for the tick time.
      */
+    // tick时间带下
     public static final String KEY_TICK_TIME = "tick_time";
     /**
      * The key in the map returned by {@link #toMap()} for the maximum
      * client connections per host.
      */
+    // 客户端最大连接数目
     public static final String KEY_MAX_CLIENT_CNXNS = "max_client_cnxns";
     /**
      * The key in the map returned by {@link #toMap()} for the minimum session
      * timeout.
      */
+    // 最小session过期时间
     public static final String KEY_MIN_SESSION_TIMEOUT = "min_session_timeout";
     /**
      * The key in the map returned by {@link #toMap()} for the maximum session
      * timeout.
      */
+    // 最大的session过期时间
     public static final String KEY_MAX_SESSION_TIMEOUT = "max_session_timeout";
     /**
      * The key in the map returned by {@link #toMap()} for the server ID.
      */
+    // server_id
     public static final String KEY_SERVER_ID = "server_id";
 
     private final int clientPort;

@@ -24,6 +24,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
+ * path与sessionId的映射
+ *
  * A watch report, essentially a mapping of path to session IDs of sessions that
  * have set a watch on that path. This class is immutable.
  */

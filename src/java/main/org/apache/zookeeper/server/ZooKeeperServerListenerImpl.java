@@ -37,6 +37,12 @@ class ZooKeeperServerListenerImpl implements ZooKeeperServerListener {
         this.zkServer = zkServer;
     }
 
+    /**
+     * 用于更新zkServer的状态
+     * @param threadName
+     *            - name of the thread
+     * @param exitCode
+     */
     @Override
     public void notifyStopping(String threadName, int exitCode) {
         LOG.info("Thread {} exits, error code {}", threadName, exitCode);

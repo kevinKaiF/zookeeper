@@ -18,13 +18,6 @@
 
 package org.apache.zookeeper.server.persistence;
 
-import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 import org.apache.jute.Record;
 import org.apache.zookeeper.KeeperException;
 import org.apache.zookeeper.KeeperException.Code;
@@ -39,7 +32,16 @@ import org.apache.zookeeper.txn.TxnHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
+ * 用于处理data的日志文件，和zkServer的snapshot文件
+ *
  * This is a helper class
  * above the implementations
  * of txnlog and snapshot
@@ -174,6 +176,7 @@ public class FileTxnSnapLog {
      */
     public long restore(DataTree dt, Map<Long, Integer> sessions,
             PlayBackListener listener) throws IOException {
+        // 反序列化的zxid
         long deserializeResult = snapLog.deserialize(dt, sessions);
         FileTxnLog txnLog = new FileTxnLog(dataDir);
         boolean trustEmptyDB;
@@ -196,6 +199,7 @@ public class FileTxnSnapLog {
             if (trustEmptyDB) {
                 /* TODO: (br33d) we should either put a ConcurrentHashMap on restore()
                  *       or use Map on save() */
+                // 持久化到磁盘
                 save(dt, (ConcurrentHashMap<Long, Integer>)sessions);
 
                 /* return a zxid of 0, since we know the database is empty */
@@ -207,6 +211,8 @@ public class FileTxnSnapLog {
                 return -1L;
             }
         }
+        // 这里加1 表示从dt.lastProcessedZxid开始查找data日志文件
+        // 升序读取
         TxnIterator itr = txnLog.read(dt.lastProcessedZxid+1);
         long highestZxid = dt.lastProcessedZxid;
         TxnHeader hdr;
@@ -219,6 +225,8 @@ public class FileTxnSnapLog {
                     //empty logs
                     return dt.lastProcessedZxid;
                 }
+
+                // 因为是txnLog是升序读取，至少hdr的zxid是大于等于lastProcessedZxid+1
                 if (hdr.getZxid() < highestZxid && highestZxid != 0) {
                     LOG.error("{}(higestZxid) > {}(next log) for type {}",
                             new Object[] { highestZxid, hdr.getZxid(),
@@ -227,6 +235,7 @@ public class FileTxnSnapLog {
                     highestZxid = hdr.getZxid();
                 }
                 try {
+                    // 更新dt的内存数据
                     processTransaction(hdr,dt,sessions, itr.getTxn());
                 } catch(KeeperException.NoNodeException e) {
                    throw new IOException("Failed to process transaction type: " +
@@ -278,12 +287,14 @@ public class FileTxnSnapLog {
      * @param sessions the sessions to be restored
      * @param txn the transaction to be applied
      */
+    // 更新dt的内存数据
     public void processTransaction(TxnHeader hdr,DataTree dt,
             Map<Long, Integer> sessions, Record txn)
         throws KeeperException.NoNodeException {
         ProcessTxnResult rc;
         switch (hdr.getType()) {
         case OpCode.createSession:
+            // 如果是创建session，则添加session
             sessions.put(hdr.getClientId(),
                     ((CreateSessionTxn) txn).getTimeOut());
             if (LOG.isTraceEnabled()) {
@@ -297,6 +308,7 @@ public class FileTxnSnapLog {
             rc = dt.processTxn(hdr, txn);
             break;
         case OpCode.closeSession:
+            // 如果是关闭session，则删除session
             sessions.remove(hdr.getClientId());
             if (LOG.isTraceEnabled()) {
                 ZooTrace.logTraceMessage(LOG,ZooTrace.SESSION_TRACE_MASK,
@@ -306,6 +318,7 @@ public class FileTxnSnapLog {
             rc = dt.processTxn(hdr, txn);
             break;
         default:
+            // 更新内存的数据
             rc = dt.processTxn(hdr, txn);
         }
 
@@ -338,10 +351,12 @@ public class FileTxnSnapLog {
      * serialized onto disk
      * @throws IOException
      */
+    // 将数据持久化到磁盘
     public void save(DataTree dataTree,
             ConcurrentHashMap<Long, Integer> sessionsWithTimeouts)
         throws IOException {
         long lastZxid = dataTree.lastProcessedZxid;
+        // snapshot文件的格式snapshot.zxid
         File snapshotFile = new File(snapDir, Util.makeSnapshotName(lastZxid));
         LOG.info("Snapshotting: 0x{} to {}", Long.toHexString(lastZxid),
                 snapshotFile);
@@ -369,6 +384,7 @@ public class FileTxnSnapLog {
         // I'd rather just close/reopen this object itself, however that 
         // would have a big impact outside ZKDatabase as there are other
         // objects holding a reference to this object.
+        // 创建新的对象
         txnLog = new FileTxnLog(dataDir);
         snapLog = new FileSnap(snapDir);
 
@@ -418,6 +434,7 @@ public class FileTxnSnapLog {
      * returns true iff something appended, otw false
      * @throws IOException
      */
+    // 写入到data日志文件
     public boolean append(Request si) throws IOException {
         return txnLog.append(si.getHdr(), si.getTxn());
     }
@@ -426,6 +443,7 @@ public class FileTxnSnapLog {
      * commit the transaction of logs
      * @throws IOException
      */
+    // 刷出data日志文件到磁盘
     public void commit() throws IOException {
         txnLog.commit();
     }
@@ -434,6 +452,7 @@ public class FileTxnSnapLog {
      * roll the transaction logs
      * @throws IOException
      */
+    // 刷出data日志文件并关闭当前文件
     public void rollLog() throws IOException {
         txnLog.rollLog();
     }

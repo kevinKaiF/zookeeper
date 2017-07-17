@@ -18,8 +18,27 @@
 
 package org.apache.zookeeper.server;
 
-import static org.jboss.netty.buffer.ChannelBuffers.dynamicBuffer;
 
+import org.apache.zookeeper.KeeperException;
+import org.apache.zookeeper.common.X509Exception;
+import org.apache.zookeeper.common.X509Exception.SSLContextException;
+import org.apache.zookeeper.common.X509Util;
+import org.apache.zookeeper.common.ZKConfig;
+import org.apache.zookeeper.server.auth.ProviderRegistry;
+import org.apache.zookeeper.server.auth.X509AuthenticationProvider;
+import org.jboss.netty.bootstrap.ServerBootstrap;
+import org.jboss.netty.buffer.ChannelBuffer;
+import org.jboss.netty.buffer.ChannelBuffers;
+import org.jboss.netty.channel.*;
+import org.jboss.netty.channel.ChannelHandler.Sharable;
+import org.jboss.netty.channel.group.ChannelGroup;
+import org.jboss.netty.channel.group.DefaultChannelGroup;
+import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
+import org.jboss.netty.handler.ssl.SslHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.net.ssl.*;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -31,52 +50,20 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executors;
 
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLEngine;
-import javax.net.ssl.SSLPeerUnverifiedException;
-import javax.net.ssl.SSLSession;
-import javax.net.ssl.X509KeyManager;
-import javax.net.ssl.X509TrustManager;
-
-import org.apache.zookeeper.KeeperException;
-import org.apache.zookeeper.common.ZKConfig;
-import org.apache.zookeeper.common.X509Exception;
-import org.apache.zookeeper.common.X509Exception.SSLContextException;
-import org.apache.zookeeper.common.X509Util;
-import org.apache.zookeeper.server.auth.ProviderRegistry;
-import org.apache.zookeeper.server.auth.X509AuthenticationProvider;
-import org.jboss.netty.bootstrap.ServerBootstrap;
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBuffers;
-import org.jboss.netty.channel.Channel;
-import org.jboss.netty.channel.ChannelFuture;
-import org.jboss.netty.channel.ChannelFutureListener;
-import org.jboss.netty.channel.ChannelHandler.Sharable;
-import org.jboss.netty.channel.ChannelHandlerContext;
-import org.jboss.netty.channel.ChannelPipeline;
-import org.jboss.netty.channel.ChannelPipelineFactory;
-import org.jboss.netty.channel.ChannelStateEvent;
-import org.jboss.netty.channel.Channels;
-import org.jboss.netty.channel.ExceptionEvent;
-import org.jboss.netty.channel.MessageEvent;
-import org.jboss.netty.channel.SimpleChannelHandler;
-import org.jboss.netty.channel.WriteCompletionEvent;
-import org.jboss.netty.channel.group.ChannelGroup;
-import org.jboss.netty.channel.group.DefaultChannelGroup;
-import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
-import org.jboss.netty.handler.ssl.SslHandler;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class NettyServerCnxnFactory extends ServerCnxnFactory {
     private static final Logger LOG = LoggerFactory.getLogger(NettyServerCnxnFactory.class);
 
+    // 服务端连接器
     ServerBootstrap bootstrap;
+    // 这个channel是server channel，每次连接会创建child channel
     Channel parentChannel;
+    // 所有channel所属的group
     ChannelGroup allChannels = new DefaultChannelGroup("zkServerCnxns");
     HashMap<InetAddress, Set<NettyServerCnxn>> ipMap =
         new HashMap<InetAddress, Set<NettyServerCnxn>>( );
     InetSocketAddress localAddress;
+    // 最大连接数
     int maxClientCnxns = 60;
 
     /**
@@ -84,6 +71,7 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
      * NettyServerCnxnFactory already extends ServerCnxnFactory. By making it inner
      * this class gets access to the member variables and methods.
      */
+    // 设置连接控制的handler
     @Sharable
     class CnxnChannelHandler extends SimpleChannelHandler {
 
@@ -97,6 +85,12 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
             allChannels.remove(ctx.getChannel());
         }
 
+        /**
+         * 连接时处理
+         * @param ctx
+         * @param e
+         * @throws Exception
+         */
         @Override
         public void channelConnected(ChannelHandlerContext ctx,
                 ChannelStateEvent e) throws Exception
@@ -105,20 +99,30 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
                 LOG.trace("Channel connected " + e);
             }
 
+            // 当connected的时候，创建连接对象
             NettyServerCnxn cnxn = new NettyServerCnxn(ctx.getChannel(),
                     zkServer, NettyServerCnxnFactory.this);
+            // 添加到attachment
             ctx.setAttachment(cnxn);
 
             if (secure) {
                 SslHandler sslHandler = ctx.getPipeline().get(SslHandler.class);
                 ChannelFuture handshakeFuture = sslHandler.handshake();
+                // CertificateVerifier这个listener在operationComplete的时候，会将channel添加到allChannels，并添加cnxn
                 handshakeFuture.addListener(new CertificateVerifier(sslHandler, cnxn));
             } else {
+                // 添加到channelGroup
                 allChannels.add(ctx.getChannel());
                 addCnxn(cnxn);
             }
         }
 
+        /**
+         * 连接断开处理
+         * @param ctx
+         * @param e
+         * @throws Exception
+         */
         @Override
         public void channelDisconnected(ChannelHandlerContext ctx,
                 ChannelStateEvent e) throws Exception
@@ -126,6 +130,8 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("Channel disconnected " + e);
             }
+
+            // 从context获取attachment，然后关闭连接
             NettyServerCnxn cnxn = (NettyServerCnxn) ctx.getAttachment();
             if (cnxn != null) {
                 if (LOG.isTraceEnabled()) {
@@ -135,6 +141,13 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
             }
         }
 
+        /**
+         * 异常处理
+         *
+         * @param ctx
+         * @param e
+         * @throws Exception
+         */
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e)
             throws Exception
@@ -149,6 +162,13 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
             }
         }
 
+        /**
+         * 接收到消息处理
+         *
+         * @param ctx
+         * @param e
+         * @throws Exception
+         */
         @Override
         public void messageReceived(ChannelHandlerContext ctx, MessageEvent e)
             throws Exception
@@ -177,6 +197,10 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
                         + cnxn.queuedBuffer);
             }
 
+            /**
+             * 如果是启用receive message事件
+             * @see NettyServerCnxn#enableRecv()
+             */
             if (e instanceof NettyServerCnxn.ResumeMessageEvent) {
                 LOG.debug("Received ResumeMessageEvent");
                 if (cnxn.queuedBuffer != null) {
@@ -187,6 +211,7 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
                                 + ChannelBuffers.hexDump(cnxn.queuedBuffer));
                     }
                     cnxn.receiveMessage(cnxn.queuedBuffer);
+                    // 如果queuedBuffer已经被全部读取
                     if (!cnxn.queuedBuffer.readable()) {
                         LOG.debug("Processed queue - no bytes remaining");
                         cnxn.queuedBuffer = null;
@@ -196,30 +221,37 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
                 } else {
                     LOG.debug("queue empty");
                 }
+                // 设置channel为可读
                 cnxn.channel.setReadable(true);
             } else {
+                // 获取数据
                 ChannelBuffer buf = (ChannelBuffer)e.getMessage();
                 if (LOG.isTraceEnabled()) {
                     LOG.trace(Long.toHexString(cnxn.sessionId)
                             + " buf 0x"
                             + ChannelBuffers.hexDump(buf));
                 }
-                
+
+                // throttled为true，表示禁止读取message
                 if (cnxn.throttled) {
                     LOG.debug("Received message while throttled");
                     // we are throttled, so we need to queue
                     if (cnxn.queuedBuffer == null) {
                         LOG.debug("allocating queue");
-                        cnxn.queuedBuffer = dynamicBuffer(buf.readableBytes());
+                        cnxn.queuedBuffer = ChannelBuffers.dynamicBuffer(buf.readableBytes());
                     }
+
+                    // 将数据写出到cnxn的queuedBuffer中
+                    // 这里cnxn并没有立即receiveMessage，只是将其读入到queuedBuffer
                     cnxn.queuedBuffer.writeBytes(buf);
                     if (LOG.isTraceEnabled()) {
                         LOG.trace(Long.toHexString(cnxn.sessionId)
                                 + " queuedBuffer 0x"
                                 + ChannelBuffers.hexDump(cnxn.queuedBuffer));
                     }
-                } else {
+                } else {// 如果没有限制读取数据
                     LOG.debug("not throttled");
+                    // 如果queuedBuffer已经存在，那么message写出到queuedBuffer中去，因为queuedBuffer已经有之前的请求数据了，不能丢弃
                     if (cnxn.queuedBuffer != null) {
                         if (LOG.isTraceEnabled()) {
                             LOG.trace(Long.toHexString(cnxn.sessionId)
@@ -233,20 +265,26 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
                                     + ChannelBuffers.hexDump(cnxn.queuedBuffer));
                         }
 
+                        // cnxn内部统一读取全部的message
                         cnxn.receiveMessage(cnxn.queuedBuffer);
                         if (!cnxn.queuedBuffer.readable()) {
                             LOG.debug("Processed queue - no bytes remaining");
+                            // 数据读取完毕，销毁queuedBuffer
                             cnxn.queuedBuffer = null;
                         } else {
                             LOG.debug("Processed queue - bytes remaining");
                         }
                     } else {
+                        // 如果queuedBuffer不存在，就直接读取
                         cnxn.receiveMessage(buf);
+                        // 为什么要再读一次呢？
+                        // 因为在读取的过程中，如果出现了禁止读取，即throttled=true，buf就无法读取完毕
+                        // 那么将尚未读取完毕的数据，写出到queuedBuffer中去
                         if (buf.readable()) {
                             if (LOG.isTraceEnabled()) {
                                 LOG.trace("Before copy " + buf);
                             }
-                            cnxn.queuedBuffer = dynamicBuffer(buf.readableBytes()); 
+                            cnxn.queuedBuffer = ChannelBuffers.dynamicBuffer(buf.readableBytes());
                             cnxn.queuedBuffer.writeBytes(buf);
                             if (LOG.isTraceEnabled()) {
                                 LOG.trace("Copy is " + cnxn.queuedBuffer);
@@ -260,6 +298,13 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
             }
         }
 
+        /**
+         * 当写出数据完成时触发，这里只是简单的打印了log
+         *
+         * @param ctx
+         * @param e
+         * @throws Exception
+         */
         @Override
         public void writeComplete(ChannelHandlerContext ctx,
                 WriteCompletionEvent e) throws Exception
@@ -269,6 +314,9 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
             }
         }
 
+        /**
+         * 身份验证的listener专门处理ssl
+         */
         private final class CertificateVerifier
                 implements ChannelFutureListener {
             private final SslHandler sslHandler;
@@ -289,6 +337,7 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
                             Long.toHexString(cnxn.sessionId));
                     SSLEngine eng = sslHandler.getEngine();
                     SSLSession session = eng.getSession();
+                    // 保存所有的验证信息
                     cnxn.setClientCertificateChain(session.getPeerCertificates());
 
                     String authProviderProp
@@ -322,15 +371,21 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
             }
         }
     }
-    
+
+    // 实例化channelHandler
     CnxnChannelHandler channelHandler = new CnxnChannelHandler();
 
+    /**
+     * 默认的构造器，初始化连接配置
+     * 连接就是普通的tcp连接
+     */
     NettyServerCnxnFactory() {
         bootstrap = new ServerBootstrap(
                 new NioServerSocketChannelFactory(
                         Executors.newCachedThreadPool(),
                         Executors.newCachedThreadPool()));
         // parent channel
+        // 设置服务器端口重用
         bootstrap.setOption("reuseAddress", true);
         // child channels
         bootstrap.setOption("child.tcpNoDelay", true);
@@ -380,10 +435,14 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
         sslEngine.setUseClientMode(false);
         sslEngine.setNeedClientAuth(true);
 
+        // 将SslHandler注册到pipeline
         p.addLast("ssl", new SslHandler(sslEngine));
         LOG.info("SSL handler added for channel: {}", p.getChannel());
     }
 
+    /**
+     * 关闭所有的连接
+     */
     @Override
     public void closeAll() {
         if (LOG.isDebugEnabled()) {
@@ -406,6 +465,11 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
         }
     }
 
+    /**
+     * 关闭指定的连接
+     * @param sessionId
+     * @return
+     */
     @Override
     public boolean closeSession(long sessionId) {
         if (LOG.isDebugEnabled()) {
@@ -424,6 +488,13 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
         return false;
     }
 
+    /**
+     * 配置连接的参数
+     * @param addr              本地address
+     * @param maxClientCnxns    最大连接数目
+     * @param secure            是否启用ssl模式
+     * @throws IOException
+     */
     @Override
     public void configure(InetSocketAddress addr, int maxClientCnxns, boolean secure)
             throws IOException
@@ -449,6 +520,7 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
         return localAddress.getPort();
     }
 
+    // 是否关闭连接工厂
     boolean killed;
     @Override
     public void join() throws InterruptedException {
@@ -459,6 +531,9 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
         }
     }
 
+    /**
+     * 关闭连接工厂
+     */
     @Override
     public void shutdown() {
         LOG.info("shutdown called " + localAddress);
@@ -481,10 +556,14 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
             notifyAll();
         }
     }
-    
+
+    /**
+     * 启动连接工厂
+     */
     @Override
     public void start() {
         LOG.info("binding to port " + localAddress);
+        // 启动服务器
         parentChannel = bootstrap.bind(localAddress);
     }
     
@@ -512,16 +591,29 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
         }
     }
 
+    /**
+     * 获取所有的连接
+     * @return
+     */
     @Override
     public Iterable<ServerCnxn> getConnections() {
         return cnxns;
     }
 
+    /**
+     * 获取本服务器的连接地址
+     * @return
+     */
     @Override
     public InetSocketAddress getLocalAddress() {
         return localAddress;
     }
 
+    /**
+     * 保存所有的cnxn对象，
+     * 并将所有客户端的连接地址，对应的连接对象保存到ipMap中 TODO 是客户端连接地址???
+     * @param cnxn
+     */
     private void addCnxn(NettyServerCnxn cnxn) {
         cnxns.add(cnxn);
         synchronized (ipMap){
@@ -537,6 +629,9 @@ public class NettyServerCnxnFactory extends ServerCnxnFactory {
         }
     }
 
+    /**
+     * 重置所有连接的统计
+     */
     @Override
     public void resetAllConnectionStats() {
         // No need to synchronize since cnxns is backed by a ConcurrentHashMap

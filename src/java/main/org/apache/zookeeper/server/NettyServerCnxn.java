@@ -18,21 +18,6 @@
 
 package org.apache.zookeeper.server;
 
-import static org.jboss.netty.buffer.ChannelBuffers.wrappedBuffer;
-
-import java.io.BufferedWriter;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.Writer;
-import java.net.InetSocketAddress;
-import java.net.SocketAddress;
-import java.nio.ByteBuffer;
-import java.security.cert.Certificate;
-import java.util.Arrays;
-import java.util.Set;
-import java.util.concurrent.atomic.AtomicLong;
-
 import org.apache.jute.BinaryInputArchive;
 import org.apache.jute.BinaryOutputArchive;
 import org.apache.jute.Record;
@@ -51,9 +36,20 @@ import org.jboss.netty.channel.MessageEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.*;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.security.cert.Certificate;
+import java.util.Arrays;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
+
+import static org.jboss.netty.buffer.ChannelBuffers.wrappedBuffer;
+
 public class NettyServerCnxn extends ServerCnxn {
     private static final Logger LOG = LoggerFactory.getLogger(NettyServerCnxn.class);
-    Channel channel;
+    Channel channel;                // socket连接通道
     ChannelBuffer queuedBuffer;
     volatile boolean throttled;
     ByteBuffer bb;
@@ -111,6 +107,7 @@ public class NettyServerCnxn extends ServerCnxn {
         if (channel.isOpen()) {
             channel.close();
         }
+        // 移除jmx
         factory.unregisterConnection(this);
     }
 
@@ -199,6 +196,9 @@ public class NettyServerCnxn extends ServerCnxn {
         this.sessionId = sessionId;
     }
 
+    /**
+     * 启用receive message的时候，会发送ResumeMessageEvent
+     */
     @Override
     public void enableRecv() {
         if (throttled) {
@@ -293,6 +293,8 @@ public class NettyServerCnxn extends ServerCnxn {
                 + channel.getRemoteAddress());
 
        if (len == FourLetterCommands.setTraceMaskCmd) {
+           // 分配8个字节？？？
+           // 因为FourLetterCommmands都是4个英文字母的命令，也就4个char，也就是8个byte
             ByteBuffer mask = ByteBuffer.allocate(8);
             message.readBytes(mask);
             mask.flip();
@@ -307,8 +309,14 @@ public class NettyServerCnxn extends ServerCnxn {
         }
     }
 
+    /**
+     * 读取message
+     *
+     * @param message
+     */
     public void receiveMessage(ChannelBuffer message) {
         try {
+            // 如果一直可读，而且没有禁止读取message
             while(message.readable() && !throttled) {
                 if (bb != null) {
                     if (LOG.isTraceEnabled()) {
@@ -322,11 +330,14 @@ public class NettyServerCnxn extends ServerCnxn {
                                         ChannelBuffers.copiedBuffer(dat)));
                     }
 
+                    // 如果bb的remaining要稍大点，调小limit
                     if (bb.remaining() > message.readableBytes()) {
                         int newLimit = bb.position() + message.readableBytes();
                         bb.limit(newLimit);
                     }
+                    // 读到bb中
                     message.readBytes(bb);
+                    // 重新设置limit到bb的容量
                     bb.limit(bb.capacity());
 
                     if (LOG.isTraceEnabled()) {
@@ -341,17 +352,23 @@ public class NettyServerCnxn extends ServerCnxn {
                                 + ChannelBuffers.hexDump(
                                         ChannelBuffers.copiedBuffer(dat)));
                     }
+                    // 读完了
                     if (bb.remaining() == 0) {
                         packetReceived();
+                        // 重置position，limit
                         bb.flip();
 
                         ZooKeeperServer zks = this.zkServer;
                         if (zks == null || !zks.isRunning()) {
                             throw new IOException("ZK down");
                         }
-                        if (initialized) {
-                            zks.processPacket(this, bb);
 
+                        // 已初始化
+                        if (initialized) {
+                            // 处理packet
+                            zks.processPacket(this, bb);
+                            // zookeeperServer做了请求处理控制，如果客户端请求过多，则禁止serverCnxn处理请求
+                            // 只是将请求的数据加入了queuedBuffer中去
                             if (zks.shouldThrottle(outstandingCount.incrementAndGet())) {
                                 disableRecvNoWait();
                             }
@@ -364,6 +381,7 @@ public class NettyServerCnxn extends ServerCnxn {
                         bb = null;
                     }
                 } else {
+                    // 否则就是命令请求，读取到的len就是命令的代号
                     if (LOG.isTraceEnabled()) {
                         LOG.trace("message readable "
                                 + message.readableBytes()
@@ -376,12 +394,17 @@ public class NettyServerCnxn extends ServerCnxn {
                                         ChannelBuffers.copiedBuffer(dat)));
                     }
 
+                    // bbLen的remaining太大了，重新限定Limit
                     if (message.readableBytes() < bbLen.remaining()) {
                         bbLen.limit(bbLen.position() + message.readableBytes());
                     }
+                    // 将message读到bbLen
                     message.readBytes(bbLen);
+                    // 还原limit
                     bbLen.limit(bbLen.capacity());
+                    // 读完了
                     if (bbLen.remaining() == 0) {
+                        // 重新设置limit和position
                         bbLen.flip();
 
                         if (LOG.isTraceEnabled()) {
@@ -425,6 +448,7 @@ public class NettyServerCnxn extends ServerCnxn {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Throttling - disabling recv " + this);
         }
+        // 将channel设置为不可读，则可以达到禁止读取数据的目的
         return channel.setReadable(false);
     }
     

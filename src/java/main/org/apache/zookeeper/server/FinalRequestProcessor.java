@@ -69,6 +69,8 @@ import java.util.List;
 import java.util.Locale;
 
 /**
+ * 最后一个Processor
+ *
  * This Request processor actually applies any transaction associated with a
  * request and services any queries. It is always at the end of a
  * RequestProcessor chain (hence the name), so it does not have a nextProcessor
@@ -106,7 +108,9 @@ public class FinalRequestProcessor implements RequestProcessor {
             // request.hdr is set for write requests, which are the only ones
             // that add to outstandingChanges.
             if (request.getHdr() != null) {
+                // 获取通信头
                 TxnHeader hdr = request.getHdr();
+                // 获取数据
                 Record txn = request.getTxn();
                 long zxid = hdr.getZxid();
                 while (!zks.outstandingChanges.isEmpty()
@@ -123,7 +127,9 @@ public class FinalRequestProcessor implements RequestProcessor {
             }
 
             // do not add non quorum packets to the queue.
+            // 是否是quorum packet
             if (request.isQuorum()) {
+                // 添加到提议？
                 zks.getZKDatabase().addCommittedProposal(request);
             }
         }
@@ -137,6 +143,7 @@ public class FinalRequestProcessor implements RequestProcessor {
             // We need to check if we can close the session id.
             // Sometimes the corresponding ServerCnxnFactory could be null because
             // we are just playing diffs from the leader.
+            // 关闭连接
             if (closeSession(zks.serverCnxnFactory, request.sessionId) ||
                     closeSession(zks.secureServerCnxnFactory, request.sessionId)) {
                 return;
@@ -149,6 +156,7 @@ public class FinalRequestProcessor implements RequestProcessor {
         ServerCnxn cnxn = request.cnxn;
 
         String lastOp = "NA";
+        // requestInProcess数目减一
         zks.decInProcess();
         Code err = Code.OK;
         Record rsp = null;
@@ -179,12 +187,14 @@ public class FinalRequestProcessor implements RequestProcessor {
             }
             switch (request.type) {
             case OpCode.ping: {
+                // 更新延迟
                 zks.serverStats().updateLatency(request.createTime);
 
                 lastOp = "PING";
+                // 更新response统计
                 cnxn.updateStatsForResponse(request.cxid, request.zxid, lastOp,
                         request.createTime, Time.currentElapsedTime());
-
+                // xid = -2 表示PING
                 cnxn.sendResponse(new ReplyHeader(-2,
                         zks.getZKDatabase().getDataTreeLastProcessedZxid(), 0), null, "response");
                 return;

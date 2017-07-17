@@ -18,11 +18,11 @@
 
 package org.apache.zookeeper;
 
-import java.util.ArrayList;
-import java.util.Collections;
-
 import org.apache.zookeeper.data.ACL;
 import org.apache.zookeeper.data.Id;
+
+import java.util.ArrayList;
+import java.util.Collections;
 
 public class ZooDefs {
    
@@ -85,16 +85,22 @@ public class ZooDefs {
     }
 
     public interface Perms {
+        // 0
         int READ = 1 << 0;
 
+        // 2
         int WRITE = 1 << 1;
 
+        // 4
         int CREATE = 1 << 2;
 
+        // 8
         int DELETE = 1 << 3;
 
+        // 16
         int ADMIN = 1 << 4;
 
+        // 16 + 8 + 4 + 2 = 30
         int ALL = READ | WRITE | CREATE | DELETE | ADMIN;
     }
 

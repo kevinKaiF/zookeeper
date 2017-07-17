@@ -29,6 +29,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
+ * 定时清理container节点和ttl节点
+ *
  * Manages cleanup of container ZNodes. This class is meant to only
  * be run from the leader. There's no harm in running from followers/observers
  * but that will be extra work that's not needed. Once started, it periodically
@@ -39,7 +41,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ContainerManager {
     private static final Logger LOG = LoggerFactory.getLogger(ContainerManager.class);
     private final ZKDatabase zkDb;
-    private final RequestProcessor requestProcessor;
+    private final RequestProcessor requestProcessor; // 用于删除container节点
     private final int checkIntervalMs;
     private final int maxPerMinute;
     private final Timer timer;
@@ -108,7 +110,9 @@ public class ContainerManager {
      */
     public void checkContainers()
             throws InterruptedException {
+        // maxPerMinute来控制每分钟的检测频率
         long minIntervalMs = getMinIntervalMs();
+        // 获取无效的节点，并删除
         for (String containerPath : getCandidates()) {
             long startMs = Time.currentElapsedTime();
 
@@ -126,6 +130,7 @@ public class ContainerManager {
 
             long elapsedMs = Time.currentElapsedTime() - startMs;
             long waitMs = minIntervalMs - elapsedMs;
+            // 如果检测时间大于已花费的时间，则需要sleep一会
             if (waitMs > 0) {
                 Thread.sleep(waitMs);
             }
@@ -140,6 +145,7 @@ public class ContainerManager {
     // VisibleForTesting
     protected Collection<String> getCandidates() {
         Set<String> candidates = new HashSet<String>();
+        // 获取container类型的节点
         for (String containerPath : zkDb.getDataTree().getContainers()) {
             DataNode node = zkDb.getDataTree().getNode(containerPath);
             /*
@@ -148,11 +154,14 @@ public class ContainerManager {
                 container just before a container cleaning period the container
                 would be immediately be deleted.
              */
+            // 无子节点
             if ((node != null) && (node.stat.getCversion() > 0) &&
                     (node.getChildren().isEmpty())) {
                 candidates.add(containerPath);
             }
         }
+
+        // 获取ttl类型的节点
         for (String ttlPath : zkDb.getDataTree().getTtls()) {
             DataNode node = zkDb.getDataTree().getNode(ttlPath);
             if (node != null) {
@@ -160,6 +169,7 @@ public class ContainerManager {
                 if (children.isEmpty()) {
                     long elapsed = getElapsed(node);
                     long ttl = EphemeralType.getTTL(node.stat.getEphemeralOwner());
+                    // 超过ttl时间
                     if ((ttl != 0) && (elapsed > ttl)) {
                         candidates.add(ttlPath);
                     }

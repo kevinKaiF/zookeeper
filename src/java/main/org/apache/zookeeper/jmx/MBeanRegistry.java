@@ -18,21 +18,16 @@
 
 package org.apache.zookeeper.jmx;
 
-import java.lang.management.ManagementFactory;
-import java.util.Collection;
-import java.util.Map;
-import java.util.Set;
-import java.util.HashSet;
-import java.util.concurrent.ConcurrentHashMap;
-
-import javax.management.JMException;
-import javax.management.MBeanServer;
-import javax.management.MBeanServerFactory;
-import javax.management.MalformedObjectNameException;
-import javax.management.ObjectName;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import javax.management.*;
+import java.lang.management.ManagementFactory;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * This class provides a unified interface for registering/unregistering of
@@ -209,8 +204,10 @@ public class MBeanRegistry {
             return null;
         StringBuilder beanName = new StringBuilder(CommonNames.DOMAIN + ":");
         int counter=0;
+        // eg.将path a/b/c 转为 name1=a,name2=b,name3=c
         counter=tokenize(beanName,path,counter);
         tokenize(beanName,bean.getName(),counter);
+        // 刪除最后一个逗号
         beanName.deleteCharAt(beanName.length()-1);
         try {
             return new ObjectName(beanName.toString());

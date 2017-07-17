@@ -18,11 +18,23 @@
 
 package org.apache.zookeeper.server;
 
-import java.io.BufferedWriter;
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.io.Writer;
+import org.apache.jute.BinaryInputArchive;
+import org.apache.jute.BinaryOutputArchive;
+import org.apache.jute.Record;
+import org.apache.zookeeper.WatchedEvent;
+import org.apache.zookeeper.data.Id;
+import org.apache.zookeeper.proto.ReplyHeader;
+import org.apache.zookeeper.proto.RequestHeader;
+import org.apache.zookeeper.proto.WatcherEvent;
+import org.apache.zookeeper.server.NIOServerCnxnFactory.SelectorThread;
+import org.apache.zookeeper.server.command.CommandExecutor;
+import org.apache.zookeeper.server.command.FourLetterCommands;
+import org.apache.zookeeper.server.command.NopCommand;
+import org.apache.zookeeper.server.command.SetTraceMaskCommand;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.*;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
@@ -35,22 +47,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.apache.jute.BinaryInputArchive;
-import org.apache.jute.BinaryOutputArchive;
-import org.apache.jute.Record;
-import org.apache.zookeeper.WatchedEvent;
-import org.apache.zookeeper.data.Id;
-import org.apache.zookeeper.proto.ReplyHeader;
-import org.apache.zookeeper.proto.RequestHeader;
-import org.apache.zookeeper.proto.WatcherEvent;
-import org.apache.zookeeper.server.NIOServerCnxnFactory.SelectorThread;
-import org.apache.zookeeper.server.command.CommandExecutor;
-import org.apache.zookeeper.server.command.FourLetterCommands;
-import org.apache.zookeeper.server.command.SetTraceMaskCommand;
-import org.apache.zookeeper.server.command.NopCommand;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
  * This class handles communication with clients using NIO. There is one per
  * client, but only one thread doing the communication.
@@ -60,6 +56,7 @@ public class NIOServerCnxn extends ServerCnxn {
 
     private final NIOServerCnxnFactory factory;
 
+    // socket连接
     private final SocketChannel sock;
 
     private final SelectorThread selectorThread;
@@ -72,6 +69,7 @@ public class NIOServerCnxn extends ServerCnxn {
 
     private ByteBuffer incomingBuffer = lenBuffer;
 
+    // 响应消息的缓存队列
     private final Queue<ByteBuffer> outgoingBuffers =
         new LinkedBlockingQueue<ByteBuffer>();
 
@@ -90,6 +88,7 @@ public class NIOServerCnxn extends ServerCnxn {
      */
     private long sessionId;
 
+    // 等待响应的请求限制
     private final int outstandingLimit;
 
     public NIOServerCnxn(ZooKeeperServer zk, SocketChannel sock,
@@ -129,6 +128,7 @@ public class NIOServerCnxn extends ServerCnxn {
      * calls to selector and then close the socket
      * @param bb
      */
+    // 同步方式的响应，即阻塞模式
     void sendBufferSync(ByteBuffer bb) {
        try {
            /* configure socket to be blocking
@@ -172,12 +172,16 @@ public class NIOServerCnxn extends ServerCnxn {
             }
         }
 
+        // 表示读取完毕
         if (incomingBuffer.remaining() == 0) { // have we read length bytes?
             packetReceived();
+            // 重置limit,position
             incomingBuffer.flip();
             if (!initialized) {
+                // 初始化连接
                 readConnectRequest();
             } else {
+                // 处理请求
                 readRequest();
             }
             lenBuffer.clear();
@@ -191,6 +195,7 @@ public class NIOServerCnxn extends ServerCnxn {
      * processing an IO request. The flag is used to gatekeep pushing interest
      * op updates onto the selector.
      */
+    // selectable控制event的状态
     private final AtomicBoolean selectable = new AtomicBoolean(true);
 
     public boolean isSelectable() {
@@ -207,6 +212,7 @@ public class NIOServerCnxn extends ServerCnxn {
 
     private void requestInterestOpsUpdate() {
         if (isSelectable()) {
+            // 异步更新selectKey的Ops，即控制read write
             selectorThread.addInterestOpsUpdateRequest(sk);
         }
     }
@@ -223,6 +229,7 @@ public class NIOServerCnxn extends ServerCnxn {
          * send.
          */
         ByteBuffer directBuffer = NIOServerCnxnFactory.getDirectBuffer();
+        // 如果没有分配堆外内存
         if (directBuffer == null) {
             ByteBuffer[] bufferList = new ByteBuffer[outgoingBuffers.size()];
             // Use gathered write call. This updates the positions of the
@@ -230,6 +237,7 @@ public class NIOServerCnxn extends ServerCnxn {
             sock.write(outgoingBuffers.toArray(bufferList));
 
             // Remove the buffers that we have sent
+            // 删除已经发送的buffer
             ByteBuffer bb;
             while ((bb = outgoingBuffers.peek()) != null) {
                 if (bb == ServerCnxnFactory.closeConn) {
@@ -242,6 +250,7 @@ public class NIOServerCnxn extends ServerCnxn {
                 outgoingBuffers.remove();
             }
          } else {
+            // 清空堆外内存
             directBuffer.clear();
 
             for (ByteBuffer b : outgoingBuffers) {
@@ -251,6 +260,7 @@ public class NIOServerCnxn extends ServerCnxn {
                      * small to hold everything, nothing will be copied,
                      * so we've got to slice the buffer if it's too big.
                      */
+                    // slice会复制内容，但是position置为0
                     b = (ByteBuffer) b.slice().limit(
                         directBuffer.remaining());
                 }
@@ -263,6 +273,7 @@ public class NIOServerCnxn extends ServerCnxn {
                  */
                 int p = b.position();
                 directBuffer.put(b);
+                // 还原position
                 b.position(p);
                 if (directBuffer.remaining() == 0) {
                     break;
@@ -335,6 +346,8 @@ public class NIOServerCnxn extends ServerCnxn {
                         // continuation
                         isPayload = true;
                     }
+
+                    // 如果是命令行
                     if (isPayload) { // not the case for 4letterword
                         readPayload();
                     }
@@ -386,6 +399,7 @@ public class NIOServerCnxn extends ServerCnxn {
             outstandingRequests.incrementAndGet();
             // check throttling
             int inProcess = zkServer.getInProcess();
+            // inProcess的请求数目大于limit，则禁用receive message
             if (inProcess > outstandingLimit) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Throttling recv " + inProcess);
@@ -704,7 +718,9 @@ public class NIOServerCnxn extends ServerCnxn {
             }
             byte b[] = baos.toByteArray();
             ByteBuffer bb = ByteBuffer.wrap(b);
+            // 写出packet长度
             bb.putInt(b.length - 4).rewind();
+            // 发送数据
             sendBuffer(bb);
             if (h.getXid() > 0) {
                 // check throttling

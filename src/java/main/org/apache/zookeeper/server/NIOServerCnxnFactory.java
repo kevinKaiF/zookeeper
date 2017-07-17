@@ -18,6 +18,9 @@
 
 package org.apache.zookeeper.server;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.net.InetAddress;
@@ -28,21 +31,13 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.Queue;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
+ * 对Reactor模式的极致解释，对应Doug的PPT @see http://gee.cs.oswego.edu/dl/cpjslides/nio.pdf
+ *
  * NIOServerCnxnFactory implements a multi-threaded ServerCnxnFactory using
  * NIO non-blocking socket calls. Communication between threads is handled via
  * queues.
@@ -224,6 +219,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
         	reconfiguring = true;
         }
 
+        // acceptThread的selectKey只用于判断event的状态，是否是isAcceptable的
         private void select() {
             try {
                 selector.select();
@@ -279,6 +275,8 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
          *
          * @return whether was able to accept a connection or not
          */
+        // ServerSocketChannel即acceptSocket，接收客户端的一个连接SocketChannel
+        // 分配给selectorThread去处理
         private boolean doAccept() {
             boolean accepted = false;
             SocketChannel sc = null;
@@ -302,6 +300,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
                     selectorIterator = selectorThreads.iterator();
                 }
                 SelectorThread selectorThread = selectorIterator.next();
+                // 异步地添加到selectorThread线程的acceptQueue
                 if (!selectorThread.addAcceptedConnection(sc)) {
                     throw new IOException(
                         "Unable to add connection to selector queue"
@@ -360,6 +359,10 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             if (stopped || !acceptedQueue.offer(accepted)) {
                 return false;
             }
+            // 这里的wakeupSelector其实很关键，selectorThread线程因为selector.select一直处于阻塞状态
+            // 通过select.wakeup解除selector的阻塞状态，首次拿到的selectKeys肯定为空
+            // 但是selectorThread可以poll acceptedQueue，遍历SocketChannel，注册到新的selector，等while下次selector.select的时候
+            // 已经有注册的SocketChannel，所以selector.select不会阻塞，
             wakeupSelector();
             return true;
         }
@@ -423,6 +426,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
 
         private void select() {
             try {
+                // 阻塞方法，wakeup可以唤醒
                 selector.select();
 
                 Set<SelectionKey> selected = selector.selectedKeys();
@@ -470,6 +474,11 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
          * Iterate over the queue of accepted connections that have been
          * assigned to this thread but not yet placed on the selector.
          */
+        // 处理客户端的请求
+        // 具体的做法就是
+        // 1.将socketChannel注册到新的selector，生成新的selectKey
+        // 2.并且创建NIOServerCnxn,即客户端连接对象
+        // 这个方法是下次while时为select做准备的
         private void processAcceptedConnections() {
             SocketChannel accepted;
             while (!stopped && (accepted = acceptedQueue.poll()) != null) {
@@ -491,9 +500,14 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
          * Iterate over the queue of connections ready to resume selection,
          * and restore their interest ops selection mask.
          */
+        // 重置NIOServerCnxn对应的selectKey的事件状态
+        // NIOServerCnxn可能会因为throttled改变读写状态，更新selectKey的状态是可读的还是可写的
+        // 注意：因为select方法要早于processInterestOpsUpdateRequests状态，
+        // 而NIOServerCnxn的读写状态是可变化的，所以这里需要重置selectKey的状态，以便下次while的时候，selectKey状态是最新的
         private void processInterestOpsUpdateRequests() {
             SelectionKey key;
             while (!stopped && (key = updateQueue.poll()) != null) {
+                // 如果selectKey cancel，selectKey就变得无效
                 if (!key.isValid()) {
                     cleanupSelectionKey(key);
                 }
@@ -527,6 +541,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             }
 
             if (key.isReadable() || key.isWritable()) {
+                // cnxn的socketChannel和key所对应的socketChannel是同一个。
                 cnxn.doIO(key);
 
                 // Check if we shutdown or doIO() closed this connection
@@ -710,12 +725,15 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             tryClose(oldSS);
             acceptThread.wakeupSelector();
             try {
+                // 这个join在哪里被唤醒？？
+                // acceptThread中的ServerSocketChannel就是ss，现在oldSS，因为tryClose，所以acceptThread也正在跳出while结束线程
                 acceptThread.join();
             } catch (InterruptedException e) {
                 LOG.error("Error joining old acceptThread when reconfiguring client port {}",
                             e.getMessage());
                 Thread.currentThread().interrupt();
             }
+            // 创建新的acceptThread线程
             acceptThread = new AcceptThread(ss, addr, selectorThreads);
             acceptThread.start();
         } catch(IOException e) {
@@ -734,6 +752,9 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
         maxClientCnxns = max;
     }
 
+    /**
+     * 开启所有的线程
+     */
     @Override
     public void start() {
         stopped = false;
@@ -811,6 +832,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
      * Add or update cnxn in our cnxnExpiryQueue
      * @param cnxn
      */
+    // 更新session的时间
     public void touchCnxn(NIOServerCnxn cnxn) {
         cnxnExpiryQueue.update(cnxn, cnxn.getSessionTimeout());
     }
@@ -881,12 +903,14 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
         }
 
         if (acceptThread != null) {
+            // 唤醒selector.select
             acceptThread.wakeupSelector();
         }
         if (expirerThread != null) {
             expirerThread.interrupt();
         }
         for (SelectorThread thread : selectorThreads) {
+            // 唤醒selector.select
             thread.wakeupSelector();
         }
         if (workerPool != null) {

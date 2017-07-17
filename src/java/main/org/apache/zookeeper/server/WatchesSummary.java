@@ -21,6 +21,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
+ * watch的统计
+ *
  * A summary of watch information. This class is immutable.
  */
 public class WatchesSummary {

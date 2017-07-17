@@ -18,6 +18,8 @@
 package org.apache.zookeeper.server;
 
 /**
+ * 使用于zookeeperThread
+ *
  * Listener for the critical resource events.
  */
 public interface ZooKeeperServerListener {

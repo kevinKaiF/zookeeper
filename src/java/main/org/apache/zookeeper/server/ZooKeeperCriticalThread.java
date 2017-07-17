@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
+ * 与ZooKeeperThread思想保持一致，添加了listener, override异常处理，除了打印日志，触发listener事件
  * Represents critical thread. When there is an uncaught exception thrown by the
  * thread this will exit the system.
  */

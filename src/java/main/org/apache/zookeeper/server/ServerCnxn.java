@@ -56,20 +56,27 @@ public abstract class ServerCnxn implements Stats, Watcher {
      */
     boolean isOldClient = true;
 
+    // 获取session过期时间
     abstract int getSessionTimeout();
 
+    // 关闭连接
     abstract void close();
 
+    // 向client发送response
     public abstract void sendResponse(ReplyHeader h, Record r, String tag)
         throws IOException;
 
+    // 向client发送close session请求
     /* notify the client the session is closing and close/cleanup socket */
     abstract void sendCloseSession();
 
+    // 处理监听事件
     public abstract void process(WatchedEvent event);
 
+    // 获取sessionId
     public abstract long getSessionId();
 
+    // 设置sessionId
     abstract void setSessionId(long sessionId);
 
     /** auth info for the cnxn, returns an unmodifyable list */
@@ -85,10 +92,13 @@ public abstract class ServerCnxn implements Stats, Watcher {
         return authInfo.remove(id);
     }
 
+    // 向client发送请求的统一接口
     abstract void sendBuffer(ByteBuffer closeConn);
 
+    // 启用receive client的请求
     abstract void enableRecv();
 
+    // 禁用receive client的请求
     abstract void disableRecv();
 
     abstract void setSessionTimeout(int sessionTimeout);
@@ -115,6 +125,7 @@ public abstract class ServerCnxn implements Stats, Watcher {
         }
     }
 
+    // 统计接收请求
     protected void packetReceived() {
         incrPacketsReceived();
         ServerStats serverStats = serverStats();
@@ -123,6 +134,7 @@ public abstract class ServerCnxn implements Stats, Watcher {
         }
     }
 
+    // 统计发送请求
     protected void packetSent() {
         incrPacketsSent();
         ServerStats serverStats = serverStats();
@@ -131,6 +143,7 @@ public abstract class ServerCnxn implements Stats, Watcher {
         }
     }
 
+    // server的请求统计
     protected abstract ServerStats serverStats();
     
     protected final Date established = new Date();
@@ -149,6 +162,7 @@ public abstract class ServerCnxn implements Stats, Watcher {
     protected long count;
     protected long totalLatency;
 
+    // 重置网络请求统计
     public synchronized void resetStats() {
         packetsReceived.set(0);
         packetsSent.set(0);
@@ -175,6 +189,7 @@ public abstract class ServerCnxn implements Stats, Watcher {
         return packetsSent.incrementAndGet();
     }
 
+    // 更新对server接收请求做出的响应的统计
     protected synchronized void updateStatsForResponse(long cxid, long zxid,
             String op, long start, long end)
     {
@@ -202,6 +217,7 @@ public abstract class ServerCnxn implements Stats, Watcher {
         return (Date)established.clone();
     }
 
+    // 获取已接收但尚未响应的请求的数目
     public abstract long getOutstandingRequests();
 
     public long getPacketsReceived() {
@@ -317,6 +333,12 @@ public abstract class ServerCnxn implements Stats, Watcher {
         pwriter.print(")");
     }
 
+    /**
+     * 获取所有的连接信息
+     *
+     * @param brief true表示获取简单的连接信息，false表示获取详细的连接信息
+     * @return
+     */
     public synchronized Map<String, Object> getConnectionInfo(boolean brief) {
         Map<String, Object> info = new LinkedHashMap<String, Object>();
         info.put("remote_socket_address", getRemoteSocketAddress());

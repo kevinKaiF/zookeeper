@@ -28,6 +28,7 @@ import java.io.InputStream;
  */
 public class BinaryInputArchive implements InputArchive {
     static public final String UNREASONBLE_LENGTH= "Unreasonable length = ";
+    // DataInput的最大好处就是可以直接读取8种基本类型以及UTF-8的string
     private DataInput in;
     
     static public BinaryInputArchive getArchive(InputStream strm) {

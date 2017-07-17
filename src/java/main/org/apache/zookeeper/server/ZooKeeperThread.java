@@ -21,6 +21,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
+ * 扩展Thread，初始化线程名称，override线程的异常处理
+ * 异常处理只是简单的记录日志
+ *
  * This is the main class for catching all the uncaught exceptions thrown by the
  * threads.
  */

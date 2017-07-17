@@ -17,14 +17,16 @@
  */
 
 package org.apache.zookeeper.server.persistence;
-import java.io.BufferedInputStream;
-import java.io.BufferedOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import org.apache.jute.BinaryInputArchive;
+import org.apache.jute.BinaryOutputArchive;
+import org.apache.jute.InputArchive;
+import org.apache.jute.OutputArchive;
+import org.apache.zookeeper.server.DataTree;
+import org.apache.zookeeper.server.util.SerializeUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.*;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,15 +34,6 @@ import java.util.Map;
 import java.util.zip.Adler32;
 import java.util.zip.CheckedInputStream;
 import java.util.zip.CheckedOutputStream;
-
-import org.apache.jute.BinaryInputArchive;
-import org.apache.jute.BinaryOutputArchive;
-import org.apache.jute.InputArchive;
-import org.apache.jute.OutputArchive;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.apache.zookeeper.server.DataTree;
-import org.apache.zookeeper.server.util.SerializeUtils;
 
 /**
  * This class implements the snapshot interface.
@@ -69,6 +62,8 @@ public class FileSnap implements SnapShot {
         // we run through 100 snapshots (not all of them)
         // if we cannot get it running within 100 snapshots
         // we should  give up
+        // 获取倒序的snapshot file
+        // 这里读取100个？经验值吧
         List<File> snapList = findNValidSnapshots(100);
         if (snapList.size() == 0) {
             return -1L;
@@ -90,6 +85,7 @@ public class FileSnap implements SnapShot {
                 if (val != checkSum) {
                     throw new IOException("CRC corruption in snapshot :  " + snap);
                 }
+                // 读到最新的一个则跳出
                 foundValid = true;
                 break;
             } catch(IOException e) {
@@ -151,7 +147,10 @@ public class FileSnap implements SnapShot {
      * less than n in case enough snapshots are not available).
      * @throws IOException
      */
+    // 获取N个有效的snapshot file
     private List<File> findNValidSnapshots(int n) throws IOException {
+        // 快照文件名是prefix.zxid格式，此处的prefix为snapshot
+        // 降序排列文件，即zxid从大到小排列
         List<File> files = Util.sortDataDir(snapDir.listFiles(),"snapshot", false);
         int count = 0;
         List<File> list = new ArrayList<File>();
@@ -160,6 +159,7 @@ public class FileSnap implements SnapShot {
             // from the valid snapshot and continue
             // until we find a valid one
             try {
+                // valid的snapshot文件最后写出了path '/'，如果不是说明快照文件生成不完整，比如断电，比如节点挂掉
                 if (Util.isValidSnapshot(f)) {
                     list.add(f);
                     count++;
@@ -177,15 +177,18 @@ public class FileSnap implements SnapShot {
     /**
      * find the last n snapshots. this does not have
      * any checks if the snapshot might be valid or not
-     * @param the number of most recent snapshots
+     * @param n the number of most recent snapshots
      * @return the last n snapshots
      * @throws IOException
      */
+    // 读取最近的N个snapshot file
     public List<File> findNRecentSnapshots(int n) throws IOException {
+        // 升序排序snapshot file，按zxid
         List<File> files = Util.sortDataDir(snapDir.listFiles(), "snapshot", false);
         int count = 0;
         List<File> list = new ArrayList<File>();
         for (File f: files) {
+            // 如果达到N个文件则结束
             if (count == n)
                 break;
             if (Util.getZxidFromName(f.getName(), "snapshot") != -1) {

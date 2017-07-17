@@ -27,17 +27,13 @@ import java.io.RandomAccessFile;
 import java.io.Serializable;
 import java.net.URI;
 import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Properties;
+import java.util.*;
 
 import org.apache.jute.BinaryOutputArchive;
 import org.apache.jute.InputArchive;
 import org.apache.jute.OutputArchive;
 import org.apache.jute.Record;
+import org.apache.zookeeper.server.DataTree;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.zookeeper.txn.TxnHeader;
@@ -184,6 +180,13 @@ public class Util {
                 return false;
             }
             ByteBuffer bb = ByteBuffer.wrap(bytes);
+            // 这里读取5个字节，
+            // getInt就是获取了4个字节，validSnapshot时getInt == 1
+            // getByte就是获取第5个字节，validSnapshot时get == '/'
+            // 所以有效的snapshot文件，结尾的5个字节格式，前4个字节表示长度，值为1，第5个字节表示字符，为'/'
+            /**
+             * {@link FileSnap#serialize(DataTree, Map, File)} 中的 oa.writeString("/", "path");
+             */
             int len = bb.getInt();
             byte b = bb.get();
             if (len != 1 || b != '/') {

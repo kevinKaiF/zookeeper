@@ -18,16 +18,17 @@
 
 package org.apache.zookeeper.server;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.Flushable;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.Random;
 import java.util.concurrent.LinkedBlockingQueue;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 /**
+ * 将请求log到磁盘，高效的批量io处理。当请求同步到磁盘才会传递给下个processor
  * This RequestProcessor logs requests to disk. It batches the requests to do
  * the io efficiently. The request is not passed to the next RequestProcessor
  * until its log has been synced to disk.
@@ -60,6 +61,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
      * disk. Basically this is the list of SyncItems whose callbacks will be
      * invoked after flush returns successfully.
      */
+    // 批量处理
     private final LinkedList<Request> toFlush = new LinkedList<Request>();
     private final Random r = new Random(System.nanoTime());
     /**
@@ -102,28 +104,36 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
 
             // we do this in an attempt to ensure that not all of the servers
             // in the ensemble take a snapshot at the same time
+            // 只刷出一部分日志
             int randRoll = r.nextInt(snapCount/2);
             while (true) {
                 Request si = null;
                 if (toFlush.isEmpty()) {
+                    // 如果队列是空的，take进行阻塞，否则直接poll
                     si = queuedRequests.take();
                 } else {
                     si = queuedRequests.poll();
+                    // 请求队列为空，则刷出到下个requestProcessor
                     if (si == null) {
                         flush(toFlush);
                         continue;
                     }
                 }
+                // 请求中止
                 if (si == requestOfDeath) {
                     break;
                 }
                 if (si != null) {
                     // track the number of records written to the log
+                    // 将Request的TxnHeader和Record序列化到FileTxnSnapLog目录
+                    // 如果没有TxnHeader，则不记录到日志
                     if (zks.getZKDatabase().append(si)) {
                         logCount++;
+                        // 如果大半数目，则刷出日志
                         if (logCount > (snapCount / 2 + randRoll)) {
                             randRoll = r.nextInt(snapCount/2);
                             // roll the log
+                            // 刷出日志
                             zks.getZKDatabase().rollLog();
                             // take a snapshot
                             if (snapInProcess != null && snapInProcess.isAlive()) {
@@ -132,6 +142,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
                                 snapInProcess = new ZooKeeperThread("Snapshot Thread") {
                                         public void run() {
                                             try {
+                                                // 打印快照，持久化日志到FileTxnSnapLog
                                                 zks.takeSnapshot();
                                             } catch(Exception e) {
                                                 LOG.warn("Unexpected exception", e);
@@ -140,6 +151,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
                                     };
                                 snapInProcess.start();
                             }
+                            // 清空统计
                             logCount = 0;
                         }
                     } else if (toFlush.isEmpty()) {
@@ -155,6 +167,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
                         }
                         continue;
                     }
+
                     toFlush.add(si);
                     if (toFlush.size() > 1000) {
                         flush(toFlush);
@@ -169,12 +182,20 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
         LOG.info("SyncRequestProcessor exited!");
     }
 
+    /**
+     * 刷出请求到下个RequestProcessor
+     *
+     * @param toFlush
+     * @throws IOException
+     * @throws RequestProcessorException
+     */
     private void flush(LinkedList<Request> toFlush)
         throws IOException, RequestProcessorException
     {
         if (toFlush.isEmpty())
             return;
 
+        // 刷出TxnLog到磁盘
         zks.getZKDatabase().commit();
         while (!toFlush.isEmpty()) {
             Request i = toFlush.remove();
@@ -189,11 +210,15 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
 
     public void shutdown() {
         LOG.info("Shutting down");
+        // 添加中止请求到队列
+        // 因为这个线程是依赖queuedRequests的take方法进行阻塞，add方法可以解除阻塞，如果判断到request是requestOfDeath，那么线程就中止
         queuedRequests.add(requestOfDeath);
         try {
             if(running){
+                // 等待该线程到死
                 this.join();
             }
+            // 需要刷新日志到磁盘
             if (!toFlush.isEmpty()) {
                 flush(toFlush);
             }
@@ -204,6 +229,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
         } catch (RequestProcessorException e) {
             LOG.warn("Got request processor exception during shutdown");
         }
+        // 关闭下一个processor
         if (nextProcessor != null) {
             nextProcessor.shutdown();
         }
