@@ -71,6 +71,8 @@ public class DatadirCleanupManager {
      * @param purgeInterval
      *            purge interval in hours
      */
+    // snapDir就是快照目录，由zoo.cfg的dataDir配置
+    // dataLogDir就是日志目录，由zoo.cfg的dataLogDir配置
     public DatadirCleanupManager(File snapDir, File dataLogDir, int snapRetainCount,
             int purgeInterval) {
         this.snapDir = snapDir;

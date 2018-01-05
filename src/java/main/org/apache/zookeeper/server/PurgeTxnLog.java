@@ -18,20 +18,16 @@
 
 package org.apache.zookeeper.server;
 
-import java.io.File;
-import java.io.FileFilter;
-import java.io.IOException;
-import java.text.DateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
-
 import org.apache.zookeeper.server.persistence.FileTxnSnapLog;
 import org.apache.zookeeper.server.persistence.Util;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.File;
+import java.io.FileFilter;
+import java.io.IOException;
+import java.text.DateFormat;
+import java.util.*;
 
 /**
  * this class is used to clean up the 
@@ -79,12 +75,14 @@ public class PurgeTxnLog {
         List<File> snaps = txnLog.findNRecentSnapshots(num);
         int numSnaps = snaps.size();
         if (numSnaps > 0) {
+            // 获取最新的一个快照文件
             purgeOlderSnapshots(txnLog, snaps.get(numSnaps - 1));
         }
     }
 
     // VisibleForTesting
     static void purgeOlderSnapshots(FileTxnSnapLog txnLog, File snapShot) {
+        // 获取最新的zxid
         final long leastZxidToBeRetain = Util.getZxidFromName(
                 snapShot.getName(), PREFIX_SNAPSHOT);
 
@@ -107,6 +105,7 @@ public class PurgeTxnLog {
          * recoverability of all snapshots being retained.  We determine that log file here by
          * calling txnLog.getSnapshotLogs().
          */
+        // 获取日志文件中大于快照文件zxid之后的文件
         final Set<File> retainedTxnLogs = new HashSet<File>();
         retainedTxnLogs.addAll(Arrays.asList(txnLog.getSnapshotLogs(leastZxidToBeRetain)));
 
@@ -133,6 +132,7 @@ public class PurgeTxnLog {
             }
         }
         // add all non-excluded log files
+        // 排除日志文件所有快照文件最大zxid之后的文件，保留老的日志文件
         File[] logs = txnLog.getDataDir().listFiles(new MyFileFilter(PREFIX_LOG));
         List<File> files = new ArrayList<>();
         if (logs != null) {
@@ -140,12 +140,14 @@ public class PurgeTxnLog {
         }
 
         // add all non-excluded snapshot files to the deletion list
+        // 排除快照日志文件所有快照文件最大zxid之后的文件，保留老的快照日志文件
         File[] snapshots = txnLog.getSnapDir().listFiles(new MyFileFilter(PREFIX_SNAPSHOT));
         if (snapshots != null) {
             files.addAll(Arrays.asList(snapshots));
         }
 
         // remove the old files
+        // 然后删除老的文件
         for(File f: files)
         {
             final String msg = "Removing file: "+

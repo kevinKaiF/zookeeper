@@ -363,6 +363,8 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             // 通过select.wakeup解除selector的阻塞状态，首次拿到的selectKeys肯定为空
             // 但是selectorThread可以poll acceptedQueue，遍历SocketChannel，注册到新的selector，等while下次selector.select的时候
             // 已经有注册的SocketChannel，所以selector.select不会阻塞，
+            // 这里非常非常关键！！！
+            // 需要唤醒SelectorThread
             wakeupSelector();
             return true;
         }
@@ -377,6 +379,9 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             if (stopped || !updateQueue.offer(sk)) {
                 return false;
             }
+            // 这个地方很关键
+            // 因为read或者write完毕之后，需要进行下一次循环
+            // 这里wakeup一次是为了下次selector的时候，解除阻塞
             wakeupSelector();
             return true;
         }

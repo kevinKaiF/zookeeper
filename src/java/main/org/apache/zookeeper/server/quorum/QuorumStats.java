@@ -18,6 +18,9 @@
 
 package org.apache.zookeeper.server.quorum;
 
+/**
+ * zk中议员的状态
+ */
 public class QuorumStats {
     private final Provider provider;
     
@@ -47,12 +50,14 @@ public class QuorumStats {
     public String toString(){
         StringBuilder sb=new StringBuilder(super.toString());
         String state=getServerState();
+        // 如果是leader打印出所有的follower
         if(state.equals(Provider.LEADING_STATE)){
             sb.append("Followers:");
             for(String f: getQuorumPeers()){
                 sb.append(" ").append(f);
             }
-            sb.append("\n");            
+            sb.append("\n");
+            // 如果是follower,observer，则打印leader
         }else if(state.equals(Provider.FOLLOWING_STATE) 
                 || state.equals(Provider.OBSERVING_STATE)){
             sb.append("Leader: ");

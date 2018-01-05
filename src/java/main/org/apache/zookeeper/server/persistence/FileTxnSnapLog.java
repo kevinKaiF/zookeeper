@@ -90,8 +90,9 @@ public class FileTxnSnapLog {
      */
     public FileTxnSnapLog(File dataDir, File snapDir) throws IOException {
         LOG.debug("Opening datadir:{} snapDir:{}", dataDir, snapDir);
-
+        // dataDir是日志目录，由zoo.cfg的dataLogDir配置
         this.dataDir = new File(dataDir, version + VERSION);
+        // snapDir是快照目录，由zoo.cfg的dataDir配置
         this.snapDir = new File(snapDir, version + VERSION);
 
         // by default create snap/log dirs, but otherwise complain instead

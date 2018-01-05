@@ -184,6 +184,7 @@ public class FileSnap implements SnapShot {
     // 读取最近的N个snapshot file
     public List<File> findNRecentSnapshots(int n) throws IOException {
         // 升序排序snapshot file，按zxid
+        // 快照文件的格式是snapshot.zxid
         List<File> files = Util.sortDataDir(snapDir.listFiles(), "snapshot", false);
         int count = 0;
         List<File> list = new ArrayList<File>();

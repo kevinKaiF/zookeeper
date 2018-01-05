@@ -74,6 +74,7 @@ import java.util.zip.Checksum;
  *     0 padded to EOF (filled during preallocation stage)
  * </pre></blockquote> 
  */
+// zk数据的日志文件
 public class FileTxnLog implements TxnLog {
     private static final Logger LOG;
 
@@ -255,6 +256,8 @@ public class FileTxnLog implements TxnLog {
         long logZxid = 0;
         // Find the log file that starts before or at the same time as the
         // zxid of the snapshot
+        // 遍历所有的zk的日志文件
+        // 找到日志文件中最大接近于snapshot的zxid
         for (File f : files) {
             long fzxid = Util.getZxidFromName(f.getName(), "log");
             if (fzxid > snapshotZxid) {
@@ -268,6 +271,7 @@ public class FileTxnLog implements TxnLog {
             }
         }
         List<File> v=new ArrayList<File>(5);
+        // 遍历所有的日志文件，找到大于snapshotZxid的文件
         for (File f : files) {
             long fzxid = Util.getZxidFromName(f.getName(), "log");
             if (fzxid < logZxid) {
