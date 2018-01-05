@@ -61,7 +61,7 @@ import org.slf4j.LoggerFactory;
  * when consolidating peer communication. This is to be verified, though.
  * 
  */
-
+// 议员socket连接管理器
 public class QuorumCnxManager {
     private static final Logger LOG = LoggerFactory.getLogger(QuorumCnxManager.class);
 
@@ -172,14 +172,15 @@ public class QuorumCnxManager {
         static public InitialMessage parse(Long protocolVersion, DataInputStream din)
             throws InitialMessageException, IOException {
             Long sid;
-
+            // 协议版本号是65536
             if (protocolVersion != PROTOCOL_VERSION) {
                 throw new InitialMessageException(
                         "Got unrecognized protocol version %s", protocolVersion);
             }
 
+            // 客户端的serverId
             sid = din.readLong();
-
+            // 读取host port
             int remaining = din.readInt();
             if (remaining <= 0 || remaining > maxBuffer) {
                 throw new InitialMessageException(
@@ -274,6 +275,7 @@ public class QuorumCnxManager {
         }
         
         // If lost the challenge, then drop the new connection
+        // 如果本机的serverId比对方的小就关闭了，只保留比自己小的
         if (sid > self.getId()) {
             LOG.info("Have smaller server identifier, so dropping the " +
                      "connection: (" + sid + ", " + self.getId() + ")");
@@ -316,14 +318,15 @@ public class QuorumCnxManager {
 
         try {
             DataInputStream din = new DataInputStream(sock.getInputStream());
-
             protocolVersion = din.readLong();
+            // 如果大于0，则是集群中其他节点的serverId
             if (protocolVersion >= 0) { // this is a server id and not a protocol version
                 sid = protocolVersion;
             } else {
                 try {
                     InitialMessage init = InitialMessage.parse(protocolVersion, din);
                     sid = init.sid;
+                    // 对方的选举地址
                     electionAddr = init.electionAddr;
                 } catch (InitialMessage.InitialMessageException ex) {
                     LOG.error(ex.toString());
@@ -332,6 +335,7 @@ public class QuorumCnxManager {
                 }
             }
 
+            // 校验对方的sid
             if (sid == QuorumPeer.OBSERVER_ID) {
                 /*
                  * Choose identifier at random. We need a value to identify
@@ -348,6 +352,8 @@ public class QuorumCnxManager {
         }
         
         //If wins the challenge, then close the new connection.
+        // 如果对方的serverId比本机的serverId要小，则关闭对方的socket请求
+        // 发送请求给从对方口中得知的electionAddr
         if (sid < self.getId()) {
             /*
              * This replica might still believe that the connection to sid is
@@ -372,6 +378,8 @@ public class QuorumCnxManager {
             }
 
         } else { // Otherwise start worker threads to receive data.
+            // 如果对方的serverId比自己大，则关闭作为客户端的本机socket
+            // 并将对方的socket请求记录到senderWorkerMap
             SendWorker sw = new SendWorker(sock, sid);
             RecvWorker rw = new RecvWorker(sock, sid, sw);
             sw.setRecv(rw);
@@ -565,6 +573,7 @@ public class QuorumCnxManager {
      */
     private void setSockOpts(Socket sock) throws SocketException {
         sock.setTcpNoDelay(true);
+        // syncLimit就是与集群中其他节点的socket超时时间
         sock.setSoTimeout(self.tickTime * self.syncLimit);
     }
 
@@ -624,6 +633,7 @@ public class QuorumCnxManager {
                 try {
                     ss = new ServerSocket();
                     ss.setReuseAddress(true);
+                    // 初始化本机服务器地址
                     if (self.getQuorumListenOnAllIPs()) {
                         int port = self.getElectionAddress().getPort();
                         addr = new InetSocketAddress(port);
@@ -771,6 +781,7 @@ public class QuorumCnxManager {
         
         synchronized void send(ByteBuffer b) throws IOException {
             byte[] msgBytes = new byte[b.capacity()];
+            // 校验
             try {
                 b.position(0);
                 b.get(msgBytes);
@@ -805,6 +816,7 @@ public class QuorumCnxManager {
                    ByteBuffer b = lastMessageSent.get(sid);
                    if (b != null) {
                        LOG.debug("Attempting to send lastMessage to sid=" + sid);
+                       // 发送
                        send(b);
                    }
                 }
@@ -830,6 +842,7 @@ public class QuorumCnxManager {
 
                         if(b != null){
                             lastMessageSent.put(sid, b);
+                            // 发送
                             send(b);
                         }
                     } catch (InterruptedException e) {
@@ -901,6 +914,7 @@ public class QuorumCnxManager {
                      * Reads the first int to determine the length of the
                      * message
                      */
+                    // 读取数据包的大小
                     int length = din.readInt();
                     if (length <= 0 || length > PACKETMAXSIZE) {
                         throw new IOException(

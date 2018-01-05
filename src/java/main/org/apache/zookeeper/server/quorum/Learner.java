@@ -237,7 +237,8 @@ public class Learner {
      */
     protected void connectToLeader(InetSocketAddress addr) 
     throws IOException, ConnectException, InterruptedException {
-        sock = new Socket();        
+        sock = new Socket();
+        // initLimit是与leader节点的socket超时时间
         sock.setSoTimeout(self.tickTime * self.initLimit);
 
         int initLimitTime = self.tickTime * self.initLimit;
@@ -299,6 +300,7 @@ public class Learner {
     	long lastLoggedZxid = self.getLastLoggedZxid();
         QuorumPacket qp = new QuorumPacket();                
         qp.setType(pktType);
+        // 左移32位生成zxid
         qp.setZxid(ZxidUtils.makeZxid(self.getAcceptedEpoch(), 0));
         
         /*
@@ -311,15 +313,19 @@ public class Learner {
         qp.setData(bsid.toByteArray());
         
         writePacket(qp, true);
-        readPacket(qp);        
+        readPacket(qp);
+        // 读取leader的epoch
         final long newEpoch = ZxidUtils.getEpochFromZxid(qp.getZxid());
+        // 来自于Leader
 		if (qp.getType() == Leader.LEADERINFO) {
         	// we are connected to a 1.0 server so accept the new epoch and read the next packet
         	leaderProtocolVersion = ByteBuffer.wrap(qp.getData()).getInt();
         	byte epochBytes[] = new byte[4];
         	final ByteBuffer wrappedEpochBytes = ByteBuffer.wrap(epochBytes);
+        	// 如果leader的epoch大于本机的epoch
         	if (newEpoch > self.getAcceptedEpoch()) {
         		wrappedEpochBytes.putInt((int)self.getCurrentEpoch());
+        		// acceptedEpoch更新为leader的epoch
         		self.setAcceptedEpoch(newEpoch);
         	} else if (newEpoch == self.getAcceptedEpoch()) {
         		// since we have already acked an epoch equal to the leaders, we cannot ack
@@ -330,6 +336,8 @@ public class Learner {
         	} else {
         		throw new IOException("Leaders epoch, " + newEpoch + " is less than accepted epoch, " + self.getAcceptedEpoch());
         	}
+        	// 并给leader发送ack
+            // 将本机的zxid,currentEpoch发送给leader
         	QuorumPacket ackNewEpoch = new QuorumPacket(Leader.ACKEPOCH, lastLoggedZxid, epochBytes, null);
         	writePacket(ackNewEpoch, true);
             return ZxidUtils.makeZxid(newEpoch, 0);

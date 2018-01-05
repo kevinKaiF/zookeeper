@@ -177,8 +177,9 @@ public class FileTxnSnapLog {
      */
     public long restore(DataTree dt, Map<Long, Integer> sessions,
             PlayBackListener listener) throws IOException {
-        // 反序列化的zxid
+        // 从快照文件中获取最新的zxid，如果是首次启动zk，deserializeResult = -1
         long deserializeResult = snapLog.deserialize(dt, sessions);
+        // dataDir 日志文件目录
         FileTxnLog txnLog = new FileTxnLog(dataDir);
         boolean trustEmptyDB;
         File initFile = new File(dataDir.getParent(), "initialize");
@@ -191,12 +192,15 @@ public class FileTxnSnapLog {
         if (-1L == deserializeResult) {
             /* this means that we couldn't find any snapshot, so we need to
              * initialize an empty database (reported in ZOOKEEPER-2325) */
+            // 如果快照日志文件没有有效的zxid，但是日志文件却有zxid
+            // 说明日志出问题了
             if (txnLog.getLastLoggedZxid() != -1) {
                 throw new IOException(
                         "No snapshot found, but there are log entries. " +
                         "Something is broken!");
             }
 
+            // 首次创建
             if (trustEmptyDB) {
                 /* TODO: (br33d) we should either put a ConcurrentHashMap on restore()
                  *       or use Map on save() */
@@ -204,6 +208,7 @@ public class FileTxnSnapLog {
                 save(dt, (ConcurrentHashMap<Long, Integer>)sessions);
 
                 /* return a zxid of 0, since we know the database is empty */
+                // 首次自动zk,zxid是0
                 return 0L;
             } else {
                 /* return a zxid of -1, since we are possibly missing data */
@@ -357,10 +362,12 @@ public class FileTxnSnapLog {
             ConcurrentHashMap<Long, Integer> sessionsWithTimeouts)
         throws IOException {
         long lastZxid = dataTree.lastProcessedZxid;
-        // snapshot文件的格式snapshot.zxid
+        // snapshot文件的格式snapshot.zxid  zxid转为16进制
+        // 创建快照日志文件
         File snapshotFile = new File(snapDir, Util.makeSnapshotName(lastZxid));
         LOG.info("Snapshotting: 0x{} to {}", Long.toHexString(lastZxid),
                 snapshotFile);
+        // 持久化dataTree数据到快照日志文件
         snapLog.serialize(dataTree, sessionsWithTimeouts, snapshotFile);
 
     }

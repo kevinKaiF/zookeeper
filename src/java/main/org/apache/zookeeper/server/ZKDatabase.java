@@ -221,7 +221,7 @@ public class ZKDatabase {
                 addCommittedProposal(r);
             }
         };
-
+        // 快照存储
         long zxid = snapLog.restore(dataTree,sessionsWithTimeouts,listener);
         initialized = true;
         return zxid;
@@ -257,6 +257,7 @@ public class ZKDatabase {
             } catch (IOException e) {
                 LOG.error("This really should be impossible", e);
             }
+            // 发起提议数据包
             QuorumPacket pp = new QuorumPacket(Leader.PROPOSAL, request.zxid,
                     baos.toByteArray(), null);
             Proposal p = new Proposal();

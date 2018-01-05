@@ -186,6 +186,8 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
                 Set<SelectorThread> selectorThreads) throws IOException {
             super("NIOServerCxnFactory.AcceptThread:" + addr);
             this.acceptSocket = ss;
+            // ServerSocketChannel注册到OP_ACCEPT到selector
+            // 并监听来自客户端的请求
             this.acceptKey =
                 acceptSocket.register(selector, SelectionKey.OP_ACCEPT);
             this.selectorThreads = Collections.unmodifiableList(
@@ -281,6 +283,8 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             boolean accepted = false;
             SocketChannel sc = null;
             try {
+                // serverSocketChannel accept客户端请求socketChannel
+                // 并交给Selector线程处理请求
                 sc = acceptSocket.accept();
                 accepted = true;
                 InetAddress ia = sc.socket().getInetAddress();
@@ -301,6 +305,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
                 }
                 SelectorThread selectorThread = selectorIterator.next();
                 // 异步地添加到selectorThread线程的acceptQueue
+                // 由SelectorThread处理队列请求
                 if (!selectorThread.addAcceptedConnection(sc)) {
                     throw new IOException(
                         "Unable to add connection to selector queue"
@@ -396,8 +401,14 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             try {
                 while (!stopped) {
                     try {
+                        // acceptedQueue添加完socketChannel后，selector被唤醒
+                        // 首次唤醒后，SelectorThread中的selector并没有注册selectorKey
+                        // 只会空执行一次
                         select();
+                        // poll acceptedQueue中的socketChannel，并将其注册到Selector为OP_READ
                         processAcceptedConnections();
+                        // 更新selectionKey的interestOps
+                        // 首次队列是空的
                         processInterestOpsUpdateRequests();
                     } catch (RuntimeException e) {
                         LOG.warn("Ignoring unexpected runtime exception", e);
@@ -470,8 +481,10 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             // Stop selecting this key while processing on its
             // connection
             cnxn.disableSelectable();
+            // 清空selectionKey的interestOps
             key.interestOps(0);
             touchCnxn(cnxn);
+            // 异步调度
             workerPool.schedule(workRequest);
         }
 
@@ -489,6 +502,10 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             while (!stopped && (accepted = acceptedQueue.poll()) != null) {
                 SelectionKey key = null;
                 try {
+                    // socketChannel注册为可读
+                    // acceptThread监听到客户端的socketChannel
+                    // 需要注册到selector，并且是可读的
+                    // 表示先读取客户端的请求数据
                     key = accepted.register(selector, SelectionKey.OP_READ);
                     NIOServerCnxn cnxn = createConnection(accepted, key, this);
                     key.attach(cnxn);
@@ -518,6 +535,10 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
                 }
                 NIOServerCnxn cnxn = (NIOServerCnxn) key.attachment();
                 if (cnxn.isSelectable()) {
+                    // getInterestOps是个或运算的过程
+                    // 如果请求数目没有超过限制，则是OP_READ
+                    // 如果buffer中有数据，则是OP_WRITE
+                    // 所以OP_READ,OP_WRITE是由服务端进行控制的
                     key.interestOps(cnxn.getInterestOps());
                 }
             }
@@ -566,6 +587,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             // Push an update request on the queue to resume selecting
             // on the current set of interest ops, which may have changed
             // as a result of the I/O operations we just performed.
+            // 将selectionKey添加到队列，等待更新selectionKey的OP类型
             if (!selectorThread.addInterestOpsUpdateRequest(key)) {
                 cnxn.close();
             }

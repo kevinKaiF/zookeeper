@@ -39,9 +39,12 @@ import java.util.Set;
 class WatchManager {
     private static final Logger LOG = LoggerFactory.getLogger(WatchManager.class);
 
+    // watchTable和watch2Paths记录两份数据
+    // key:path,value:Set<Watcher>
     private final HashMap<String, HashSet<Watcher>> watchTable =
         new HashMap<String, HashSet<Watcher>>();
 
+    // key:watcher,value:Set<path>
     private final HashMap<Watcher, HashSet<String>> watch2Paths =
         new HashMap<Watcher, HashSet<String>>();
 
@@ -93,6 +96,13 @@ class WatchManager {
         return triggerWatch(path, type, null);
     }
 
+    /**
+     *
+     * @param path
+     * @param type
+     * @param supress  需要滤除的Watcher
+     * @return
+     */
     Set<Watcher> triggerWatch(String path, EventType type, Set<Watcher> supress) {
         WatchedEvent e = new WatchedEvent(type,
                 KeeperState.SyncConnected, path);

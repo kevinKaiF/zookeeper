@@ -56,6 +56,7 @@ public class AtomicFileOutputStream extends FilterOutputStream {
         // Code unfortunately must be duplicated below since we can't assign
         // anything
         // before calling super
+        // 先创建temp文件
         super(new FileOutputStream(new File(f.getParentFile(), f.getName()
                 + TMP_EXTENSION)));
         origFile = f.getAbsoluteFile();
@@ -74,10 +75,13 @@ public class AtomicFileOutputStream extends FilterOutputStream {
             super.close();
             success = true;
         } finally {
+            // 文件写入成功后，将临时文件重命名为目标文件
+            // 如果失败了，则删除临时文件
             if (success) {
                 boolean renamed = tmpFile.renameTo(origFile);
                 if (!renamed) {
                     // On windows, renameTo does not replace.
+                    // 重命名失败，则删除临时文件，或者再次重命名
                     if (!origFile.delete() || !tmpFile.renameTo(origFile)) {
                         throw new IOException(
                                 "Could not rename temporary file " + tmpFile

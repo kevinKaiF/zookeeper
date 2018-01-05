@@ -85,7 +85,8 @@ public class FileSnap implements SnapShot {
                 if (val != checkSum) {
                     throw new IOException("CRC corruption in snapshot :  " + snap);
                 }
-                // 读到最新的一个则跳出
+                // 表示读取到有效的快照文件
+                // 读取就跳出
                 foundValid = true;
                 break;
             } catch(IOException e) {
@@ -100,6 +101,8 @@ public class FileSnap implements SnapShot {
         if (!foundValid) {
             throw new IOException("Not able to find valid snapshots in " + snapDir);
         }
+        // 快照文件的格式snap.zxid
+        // 获取最新的快照文件的zxid
         dt.lastProcessedZxid = Util.getZxidFromName(snap.getName(), "snapshot");
         return dt.lastProcessedZxid;
     }

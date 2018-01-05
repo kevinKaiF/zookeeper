@@ -163,6 +163,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
             int port = this.addr.getPort();
             this.addr = new InetSocketAddress(address, port);
             port = this.electionAddr.getPort();
+            // 选举地址默认是本机
             this.electionAddr = new InetSocketAddress(address, port);
         }
 
@@ -769,7 +770,12 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         if (!getView().containsKey(myid)) {
             throw new RuntimeException("My id " + myid + " not in the peer list");
          }
+         // 初始化zk的内存数据，快照文件，
+        // 以及最新的zxid lastProccessZxid
+        // currentEpoch
+        // acceptedEpoch
         loadDataBase();
+        // 启动服务器socketServer
         startServerCnxnFactory();
         try {
             adminServer.start();
@@ -777,44 +783,56 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
             LOG.warn("Problem starting AdminServer", e);
             System.out.println(e);
         }
+        // 开始选举
         startLeaderElection();
         super.start();
     }
 
     private void loadDataBase() {
         try {
+            // 更新快照日志，以及内存数据
             zkDb.loadDataBase();
 
             // load the epochs
+            // 获取最新的zxid
+            // 首次启动zk,zxid=0
             long lastProcessedZxid = zkDb.getDataTree().lastProcessedZxid;
+            // 将zxid右移32位生成epochOfZxid
             long epochOfZxid = ZxidUtils.getEpochFromZxid(lastProcessedZxid);
             try {
+                // 从快照日志文件目录中读取currentEpoch文件，拿到currentEpoch
                 currentEpoch = readLongFromFile(CURRENT_EPOCH_FILENAME);
             } catch(FileNotFoundException e) {
             	// pick a reasonable epoch number
             	// this should only happen once when moving to a
             	// new code version
+                // 如果还没有创建，则第一个currentEpoch就是最新的zxid右移32位之后的值
             	currentEpoch = epochOfZxid;
             	LOG.info(CURRENT_EPOCH_FILENAME
             	        + " not found! Creating with a reasonable default of {}. This should only happen when you are upgrading your installation",
             	        currentEpoch);
             	writeLongToFile(CURRENT_EPOCH_FILENAME, currentEpoch);
             }
+            // 如果从快照日志目录解析到的epochOfZxid,要比从快照日志目录下的currentEpoch文件读取到的还要大
+            // 说明currentEpoch文件保存的zxid太老了，理论上currentEpoch要最新
             if (epochOfZxid > currentEpoch) {
                 throw new IOException("The current epoch, " + ZxidUtils.zxidToString(currentEpoch) + ", is older than the last zxid, " + lastProcessedZxid);
             }
             try {
+                // 从快照日志文件目录中读取acceptedEpoch文件，拿到acceptedEpoch
                 acceptedEpoch = readLongFromFile(ACCEPTED_EPOCH_FILENAME);
             } catch(FileNotFoundException e) {
             	// pick a reasonable epoch number
             	// this should only happen once when moving to a
             	// new code version
+                // 如果是首次则是epochOfZxid，并持久化到文件
             	acceptedEpoch = epochOfZxid;
             	LOG.info(ACCEPTED_EPOCH_FILENAME
             	        + " not found! Creating with a reasonable default of {}. This should only happen when you are upgrading your installation",
             	        acceptedEpoch);
             	writeLongToFile(ACCEPTED_EPOCH_FILENAME, acceptedEpoch);
             }
+            // acceptedEpoch不能小于currentEpoch
             if (acceptedEpoch < currentEpoch) {
                 throw new IOException("The accepted epoch, " + ZxidUtils.zxidToString(acceptedEpoch) + " is less than the current epoch, " + ZxidUtils.zxidToString(currentEpoch));
             }
@@ -833,6 +851,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     synchronized public void startLeaderElection() {
        try {
            if (getPeerState() == ServerState.LOOKING) {
+               // 当前server的serverId,最新的zxid,currentEpoch
                currentVote = new Vote(myid, getLastLoggedZxid(), getCurrentEpoch());
            }
        } catch(IOException e) {
@@ -853,6 +872,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                 throw new RuntimeException(e);
             }
         }
+        // zk默认的选举类型electionType=3
         this.electionAlg = createElectionAlgorithm(electionType);
     }
 
@@ -962,9 +982,11 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
             le = new AuthFastLeaderElection(this, true);
             break;
         case 3:
+            //
             qcm = new QuorumCnxManager(this);
             QuorumCnxManager.Listener listener = qcm.listener;
             if(listener != null){
+                // 启动选举监听线程
                 listener.start();
                 FastLeaderElection fle = new FastLeaderElection(this, qcm);
                 fle.start();
@@ -1698,6 +1720,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
         return qcm;
     }
     private long readLongFromFile(String name) throws IOException {
+        // 从快照日志文件下读取文件
         File file = new File(logFactory.getSnapDir(), name);
         BufferedReader br = new BufferedReader(new FileReader(file));
         String line = "";
