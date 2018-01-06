@@ -213,6 +213,7 @@ public class FileTxnSnapLog {
             } else {
                 /* return a zxid of -1, since we are possibly missing data */
                 LOG.warn("Unexpected empty data tree, setting zxid to -1");
+                // 如果丢失数据了，或者autoCreateDB=false,zxid=-1
                 dt.lastProcessedZxid = -1L;
                 return -1L;
             }

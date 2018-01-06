@@ -163,7 +163,8 @@ public class QuorumPeerConfig {
                throw new ConfigException("Error processing " + dynamicConfigFileStr, e);
            } catch (IllegalArgumentException e) {
                throw new ConfigException("Error processing " + dynamicConfigFileStr, e);
-           }        
+           }
+           // conf目录下的.dynamic.next文件存在
            File nextDynamicConfigFile = new File(configFileStr + nextDynamicConfigFileSuffix);
            if (nextDynamicConfigFile.exists()) {
                try {           
@@ -531,6 +532,7 @@ public class QuorumPeerConfig {
              * The default QuorumVerifier is QuorumMaj
              */        
             //LOG.info("Defaulting to majority quorums");
+           // 解析配置的集群，默认
             return new QuorumMaj(dynamicConfigProp);            
         }          
     }
@@ -563,10 +565,12 @@ public class QuorumPeerConfig {
                throw new ConfigException("Unrecognised parameter: " + key);                
             }
         }
-        
+
+        // 初始化集群节点的配置
         QuorumVerifier qv = createQuorumVerifier(dynamicConfigProp, isHierarchical);
-               
+        // 参与会议的人员数目
         int numParticipators = qv.getVotingMembers().size();
+        // 观察者数目
         int numObservers = qv.getObservingMembers().size();
         if (numParticipators == 0) {
             if (!standaloneEnabled) {
@@ -586,6 +590,7 @@ public class QuorumPeerConfig {
                 throw new IllegalArgumentException("Observers w/o quorum is an invalid configuration");
             }
         } else {
+            // 如果不是奇数则会告警
             if (warnings) {
                 if (numParticipators <= 2) {
                     LOG.warn("No server failure will be tolerated. " +
@@ -597,7 +602,8 @@ public class QuorumPeerConfig {
             /*
              * If using FLE, then every server requires a separate election
              * port.
-             */            
+             */
+            // 校验选举地址
            if (eAlg != 0) {
                for (QuorumServer s : qv.getVotingMembers().values()) {
                    if (s.electionAddr == null)

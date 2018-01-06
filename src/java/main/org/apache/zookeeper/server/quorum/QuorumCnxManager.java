@@ -111,6 +111,7 @@ public class QuorumCnxManager {
      * Mapping from Peer to Thread number
      */
     final ConcurrentHashMap<Long, SendWorker> senderWorkerMap;
+    // key:serverId,value:queue
     final ConcurrentHashMap<Long, ArrayBlockingQueue<ByteBuffer>> queueSendMap;
     final ConcurrentHashMap<Long, ByteBuffer> lastMessageSent;
 
@@ -486,14 +487,19 @@ public class QuorumCnxManager {
             // Resolve hostname for the remote server before attempting to
             // connect in case the underlying ip address has changed.
             self.recreateSocketAddresses(sid);
+            // 获取集群中所有参与投票的节点
             Map<Long, QuorumPeer.QuorumServer> lastCommittedView = self.getView();
+            // 获取last
             QuorumVerifier lastSeenQV = self.getLastSeenQuorumVerifier();
+            // 获取集群中所有参与投票的节点
             Map<Long, QuorumPeer.QuorumServer> lastProposedView = lastSeenQV.getAllMembers();
+            // 如果集群节点包含serverId，则连接到这个serverId
             if (lastCommittedView.containsKey(sid)) {
                 knownId = true;
                 if (connectOne(sid, lastCommittedView.get(sid).electionAddr))
                     return;
             }
+            // 如果不包含，则从lastview获取
             if (lastSeenQV != null && lastProposedView.containsKey(sid)
                     && (!knownId || (lastProposedView.get(sid).electionAddr !=
                     lastCommittedView.get(sid).electionAddr))) {
@@ -501,6 +507,8 @@ public class QuorumCnxManager {
                 if (connectOne(sid, lastProposedView.get(sid).electionAddr))
                     return;
             }
+
+            // 如果都没找到，记录说明是个无效的serverId
             if (!knownId) {
                 LOG.warn("Invalid server id: " + sid);
                 return;
@@ -726,6 +734,7 @@ public class QuorumCnxManager {
          * @param sid
          *            Server identifier of remote peer
          */
+        // socket 与 serverId是对应的
         SendWorker(Socket sock, Long sid) {
             super("SendWorker:" + sid);
             this.sid = sid;
@@ -869,7 +878,7 @@ public class QuorumCnxManager {
         volatile boolean running = true;
         DataInputStream din;
         final SendWorker sw;
-
+        // socket 与 serverId是对应的
         RecvWorker(Socket sock, Long sid, SendWorker sw) {
             super("RecvWorker:" + sid);
             this.sid = sid;

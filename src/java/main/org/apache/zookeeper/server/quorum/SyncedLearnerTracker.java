@@ -63,7 +63,9 @@ public class SyncedLearnerTracker {
     }
 
     public static class QuorumVerifierAcksetPair {
+        // 投票集群
         private final QuorumVerifier qv;
+        // 支持
         private final HashSet<Long> ackset;
 
         public QuorumVerifierAcksetPair(QuorumVerifier qv, HashSet<Long> ackset) {                

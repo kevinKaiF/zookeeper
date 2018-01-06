@@ -408,6 +408,7 @@ public class Leader {
      * @throws InterruptedException
      */
     void lead() throws IOException, InterruptedException {
+        // 记录选举结束时间
         self.end_fle = Time.currentElapsedTime();
         long electionTimeTaken = self.end_fle - self.start_fle;
         self.setElectionTimeTaken(electionTimeTaken);
@@ -420,6 +421,7 @@ public class Leader {
 
         try {
             self.tick.set(0);
+            // 重新加载zk数据，清理临时节点
             zk.loadData();
 
             leaderStateSummary = new StateSummary(self.getCurrentEpoch(), zk.getLastProcessedZxid());
@@ -428,9 +430,8 @@ public class Leader {
             // new followers.
             cnxAcceptor = new LearnerCnxAcceptor();
             cnxAcceptor.start();
-
             long epoch = getEpochToPropose(self.getId(), self.getAcceptedEpoch());
-
+            // 更新zxid
             zk.setZxid(ZxidUtils.makeZxid(epoch, 0));
 
             synchronized(this){
@@ -712,8 +713,12 @@ public class Leader {
 
     /**
      * @return True if committed, otherwise false.
-     * @param a proposal p
-     **/
+     *
+     * @param p
+     * @param zxid
+     * @param followerAddr
+     * @return
+     */
     synchronized public boolean tryToCommit(Proposal p, long zxid, SocketAddress followerAddr) {       
        // make sure that ops are committed in order. With reconfigurations it is now possible
        // that different operations wait for different sets of acks, and we still want to enforce
@@ -1179,6 +1184,7 @@ public class Leader {
             if (connectingFollowers.contains(self.getId()) &&
                                             verifier.containsQuorum(connectingFollowers)) {
                 waitingForNewEpoch = false;
+                // 更新本机acceptedEpoch
                 self.setAcceptedEpoch(epoch);
                 connectingFollowers.notifyAll();
             } else {

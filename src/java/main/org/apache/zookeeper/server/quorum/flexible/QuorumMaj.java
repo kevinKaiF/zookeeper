@@ -82,12 +82,14 @@ public class QuorumMaj implements QuorumVerifier {
         for (Entry<Object, Object> entry : props.entrySet()) {
             String key = entry.getKey().toString();
             String value = entry.getValue().toString();
-
+            // 解析集群中所有server的配置
             if (key.startsWith("server.")) {
                 int dot = key.indexOf('.');
                 long sid = Long.parseLong(key.substring(dot + 1));
                 QuorumServer qs = new QuorumServer(sid, value);
+                // 记录集群所有的节点
                 allMembers.put(Long.valueOf(sid), qs);
+                // qs的默认类型是PARTICIPANT
                 if (qs.type == LearnerType.PARTICIPANT)
                     votingMembers.put(Long.valueOf(sid), qs);
                 else {
@@ -97,6 +99,7 @@ public class QuorumMaj implements QuorumVerifier {
                 version = Long.parseLong(value, 16);
             }
         }
+        // 参与会议的人数必须超过一半
         half = votingMembers.size() / 2;
     }
 
@@ -130,6 +133,7 @@ public class QuorumMaj implements QuorumVerifier {
      * Verifies if a set is a majority. Assumes that ackSet contains acks only
      * from votingMembers
      */
+    // 如果集群中投票数目超过一半
     public boolean containsQuorum(Set<Long> ackSet) {
         return (ackSet.size() > half);
     }

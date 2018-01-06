@@ -67,10 +67,11 @@ public class Observer extends Learner{
             LOG.info("Observing " + addr);
             try {
                 connectToLeader(addr);
+                // 注册信息到leader,返回leader的zxid
                 long newLeaderZxid = registerWithLeader(Leader.OBSERVERINFO);
                 if (self.isReconfigStateChange())
                    throw new Exception("learned about role change");
- 
+                // 同步leader数据
                 syncWithLeader(newLeaderZxid);
                 QuorumPacket qp = new QuorumPacket();
                 while (this.isRunning()) {

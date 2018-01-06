@@ -203,6 +203,10 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
         public QuorumServer(long sid, String addressStr) throws ConfigException {
             // LOG.warn("sid = " + sid + " addressStr = " + addressStr);
+            // 2888是位客户端的服务端口，3888是zk集群通信的端口
+            // server.0=192.168.1.100:2888:3888
+            // server.1=192.168.1.101:2888:3888
+            // server.2=192.168.1.102:2888:3888
             this.id = sid;
             String serverClientParts[] = addressStr.split(";");
             String serverParts[] = splitWithLeadingHostname(serverClientParts[0]);
@@ -650,17 +654,21 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
      * it also updates myQuorumAddr and myElectionAddr.
      */
     public void recreateSocketAddresses(long id) {
+        // 获取集群所有节点的信息
         QuorumVerifier qv = getQuorumVerifier();
         if (qv != null) {
+            // 找到指定的serverId的信息，初始化服务地址和投票地址
             QuorumServer qs = qv.getAllMembers().get(id);
             if (qs != null) {
                 qs.recreateSocketAddresses();
+                // 如果是本机，重置下本机服务地址和选举地址
                 if (id == getId()) {
                     setQuorumAddress(qs.addr);
                     setElectionAddress(qs.electionAddr);
                 }
             }
         }
+        // 从.dynamic 文件中获取投票的节点信息
         qv = getLastSeenQuorumVerifier();
         if (qv != null) {
             QuorumServer qs = qv.getAllMembers().get(id);
@@ -795,7 +803,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
             // load the epochs
             // 获取最新的zxid
-            // 首次启动zk,zxid=0
+            // 首次启动zk,zxid=0，如果不autoCreateDB，zxid=-1
             long lastProcessedZxid = zkDb.getDataTree().lastProcessedZxid;
             // 将zxid右移32位生成epochOfZxid
             long epochOfZxid = ZxidUtils.getEpochFromZxid(lastProcessedZxid);
@@ -852,6 +860,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
        try {
            if (getPeerState() == ServerState.LOOKING) {
                // 当前server的serverId,最新的zxid,currentEpoch
+               // 初始化当前投票是自己
                currentVote = new Vote(myid, getLastLoggedZxid(), getCurrentEpoch());
            }
        } catch(IOException e) {
@@ -1111,6 +1120,8 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                                 shuttingDownLE = false;
                                 startLeaderElection();
                             }
+                            // 默认是FastLeaderElection
+                            // 选出投票
                             setCurrentVote(makeLEStrategy().lookForLeader());
                         } catch (Exception e) {
                             LOG.warn("Unexpected exception", e);
@@ -1273,8 +1284,10 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     }
 
     public synchronized Set<Long> getCurrentAndNextConfigVoters() {
+        // 集群中所有参与投票的serverId
         Set<Long> voterIds = new HashSet<Long>(getQuorumVerifier()
                 .getVotingMembers().keySet());
+        // 如果lastSeen也有配置，也添加到serverId
         if (getLastSeenQuorumVerifier() != null) {
             voterIds.addAll(getLastSeenQuorumVerifier().getVotingMembers()
                     .keySet());
@@ -1788,6 +1801,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
        // update last committed quorum verifier, write the new config to disk
        // and restart leader election if config changed
+        // 更新本机的集群信息，并持久化到磁盘文件.dynamic.version
        QuorumVerifier prevQV = setQuorumVerifier(qv, true);
 
        // There is no log record for the initial config, thus after syncing
@@ -1798,6 +1812,8 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
        // so we should explicitly do this (this is not necessary when we're
        // already a Follower/Observer, only
        // for Learner):
+
+        // 更新/zookeeper/config 在zk的内存数据
        initConfigInZKDatabase();
 
        if (prevQV.getVersion() < qv.getVersion() && !prevQV.equals(qv)) {
@@ -1806,19 +1822,23 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
            if (restartLE) restartLeaderElection(prevQV, qv);
 
            QuorumServer myNewQS = newMembers.get(getId());
+           // 更新本机的clientAddr
            if (myNewQS != null && myNewQS.clientAddr != null
                    && !myNewQS.clientAddr.equals(oldClientAddr)) {
                cnxnFactory.reconfigure(myNewQS.clientAddr);
                updateThreadName();
            }
-
+            // 更新参与投票的状态，是participate还是observer
            boolean roleChange = updateLearnerType(qv);
            boolean leaderChange = false;
            if (suggestedLeaderId != null) {
                // zxid should be non-null too
+               // 更新投票
                leaderChange = updateVote(suggestedLeaderId, zxid);
            } else {
+               // 获取当前leader serverId
                long currentLeaderId = getCurrentVote().getId();
+               // 对比新老两个leader是否一致
                QuorumServer myleaderInCurQV = prevQV.getVotingMembers().get(currentLeaderId);
                QuorumServer myleaderInNewQV = qv.getVotingMembers().get(currentLeaderId);
                leaderChange = (myleaderInCurQV == null || myleaderInCurQV.addr == null || 
@@ -1827,7 +1847,8 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                // election
                reconfigFlagClear();
            }
-           
+
+           // 如果本节点的投票状态更改 或者 leader更改都表示更改
            if (roleChange || leaderChange) {
                return true;
            }

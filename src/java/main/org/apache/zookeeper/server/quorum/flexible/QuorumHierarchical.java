@@ -48,11 +48,13 @@ import org.apache.zookeeper.server.quorum.QuorumPeerConfig.ConfigException;
  * a colon-separated list of server ids. It is also necessary to assign
  * weights to server. Here is an example of a configuration that creates
  * three groups and assigns a weight of 1 to each server:
- * 
+ *
+ *  表示3个分组，value是serverId
  *  group.1=1:2:3
  *  group.2=4:5:6
  *  group.3=7:8:9
- *  
+ *
+ *  每个serverId的权重
  *  weight.1=1
  *  weight.2=1
  *  weight.3=1
