@@ -27,10 +27,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.SocketException;
 import java.nio.ByteBuffer;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
-import java.nio.channels.ServerSocketChannel;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -188,6 +185,10 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             this.acceptSocket = ss;
             // ServerSocketChannel注册到OP_ACCEPT到selector
             // 并监听来自客户端的请求
+
+            // serverSocketChannel注册到selector，返回一个acceptKey
+            // 这个acceptKey是对当前serverSocketChannel和selector的封装
+            // acceptKey.interestOps()实际上是修改selector监听的事件类型
             this.acceptKey =
                 acceptSocket.register(selector, SelectionKey.OP_ACCEPT);
             this.selectorThreads = Collections.unmodifiableList(
@@ -225,11 +226,14 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
         private void select() {
             try {
                 selector.select();
-
+                // selector.selectedKeys是监听到客户端请求的selectionKey，而非acceptedKey
+                // 这个selector.selectedKeys的意义就是表示客户端有请求来了，serverSocketChannel可以accept了
+                // 获取客户端的请求生成socketChannel
                 Iterator<SelectionKey> selectedKeys =
                     selector.selectedKeys().iterator();
                 while (!stopped && selectedKeys.hasNext()) {
                     SelectionKey key = selectedKeys.next();
+                    // selector注册器中删除这个selectionKey
                     selectedKeys.remove();
 
                     if (!key.isValid()) {
@@ -285,6 +289,9 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             try {
                 // serverSocketChannel accept客户端请求socketChannel
                 // 并交给Selector线程处理请求
+
+                // serverSocketChannel仅仅只是监听socket连接
+                // 真正处理与客户端的read write操作的是socketChannel
                 sc = acceptSocket.accept();
                 accepted = true;
                 InetAddress ia = sc.socket().getInetAddress();
@@ -297,12 +304,16 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
 
                 LOG.info("Accepted socket connection from "
                          + sc.socket().getRemoteSocketAddress());
+                // 配置成非阻塞模式，方便在selector在selectKeys是非阻塞的
                 sc.configureBlocking(false);
 
                 // Round-robin assign this connection to a selector thread
                 if (!selectorIterator.hasNext()) {
                     selectorIterator = selectorThreads.iterator();
                 }
+                // acceptThread会选择一个selectorThread, round-robin的均衡方式
+                // 将接收到的socketChannel添加到选中的selectorThread的acceptedQueue
+                // 异步地让selectorThread处理socketChannel
                 SelectorThread selectorThread = selectorIterator.next();
                 // 异步地添加到selectorThread线程的acceptQueue
                 // 由SelectorThread处理队列请求
@@ -346,6 +357,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
     class SelectorThread extends AbstractSelectThread {
         private final int id;
         private final Queue<SocketChannel> acceptedQueue;
+        // updateQueue维护了，socketChannel和selector之间register的selectionKey
         private final Queue<SelectionKey> updateQueue;
 
         public SelectorThread(int id) throws IOException {
@@ -444,10 +456,14 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             try {
                 // 阻塞方法，wakeup可以唤醒
                 selector.select();
-
+                // selector底层有selectedKeys和keys两个属性
+                // selectedKeys用于每次监听的事件
+                // keys是register的selectionKey
+                // 而selectedKeys中的对象和keys的对象都是相同的，只是两者的用途不同！
                 Set<SelectionKey> selected = selector.selectedKeys();
                 ArrayList<SelectionKey> selectedList =
                     new ArrayList<SelectionKey>(selected);
+                // 洗牌一下？
                 Collections.shuffle(selectedList);
                 Iterator<SelectionKey> selectedKeys = selectedList.iterator();
                 while(!stopped && selectedKeys.hasNext()) {
@@ -459,6 +475,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
                         continue;
                     }
                     if (key.isReadable() || key.isWritable()) {
+                        // 异步处理客户端的请求数据
                         handleIO(key);
                     } else {
                         LOG.warn("Unexpected ops in select " + key.readyOps());
@@ -500,12 +517,17 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
         private void processAcceptedConnections() {
             SocketChannel accepted;
             while (!stopped && (accepted = acceptedQueue.poll()) != null) {
+                // 这个key非常非常关键！！！
+                // 这个是当前socketChannel和selector的封装
+                // 维护了客户端所有的read,write，所以需要用这个key来interestOps是可读还是可写的
                 SelectionKey key = null;
                 try {
                     // socketChannel注册为可读
                     // acceptThread监听到客户端的socketChannel
                     // 需要注册到selector，并且是可读的
                     // 表示先读取客户端的请求数据
+
+                    // socketChannel需要注册到一个新的selector
                     key = accepted.register(selector, SelectionKey.OP_READ);
                     NIOServerCnxn cnxn = createConnection(accepted, key, this);
                     key.attach(cnxn);
@@ -527,6 +549,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
         // 注意：因为select方法要早于processInterestOpsUpdateRequests状态，
         // 而NIOServerCnxn的读写状态是可变化的，所以这里需要重置selectKey的状态，以便下次while的时候，selectKey状态是最新的
         private void processInterestOpsUpdateRequests() {
+            // 这个key是socketChannel与selector之间register的selectionKey
             SelectionKey key;
             while (!stopped && (key = updateQueue.poll()) != null) {
                 // 如果selectKey cancel，selectKey就变得无效
@@ -583,6 +606,7 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
             }
 
             // Mark this connection as once again ready for selection
+            // 处理完之后，就可以再次启用select
             cnxn.enableSelectable();
             // Push an update request on the queue to resume selecting
             // on the current set of interest ops, which may have changed
