@@ -85,6 +85,7 @@ public class ExpiryQueue<E> {
      * @return         time at which the element is now set to expire if
      *                 changed, or null if unchanged
      */
+    // 每次更新session,需要重新计算下次session过期的时间戳
     public Long update(E elem, int timeout) {
         Long prevExpiryTime = elemMap.get(elem);
         long now = Time.currentElapsedTime();

@@ -87,8 +87,10 @@ public class DataTree {
     private final ConcurrentHashMap<String, DataNode> nodes =
         new ConcurrentHashMap<String, DataNode>();
 
+    // zk目录数据变更的watcher
     private final WatchManager dataWatches = new WatchManager();
 
+    // zk目录变更watcher
     private final WatchManager childWatches = new WatchManager();
 
     /** the root of zookeeper tree */
@@ -1138,6 +1140,7 @@ public class DataTree {
         // so there is no need for synchronization. The list is not
         // changed here. Only create and delete change the list which
         // are again called from FinalRequestProcessor in sequence.
+
         // 移除该sessionId对应的临时节点
         HashSet<String> list = ephemerals.remove(session);
         if (list != null) {

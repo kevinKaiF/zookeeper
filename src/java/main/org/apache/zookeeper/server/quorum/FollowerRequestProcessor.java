@@ -70,8 +70,9 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
                 // We want to queue the request to be processed before we submit
                 // the request to the leader so that we are ready to receive
                 // the response
+                // 先是本机处理
                 nextProcessor.processRequest(request);
-
+                // 如果是写操作，需要发送leader结果
                 // We now ship the request to the leader. As with all
                 // other quorum operations, sync also follows this code
                 // path, but different from others, we need to keep track
@@ -80,6 +81,7 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
                 switch (request.type) {
                 case OpCode.sync:
                     zks.pendingSyncs.add(request);
+                    // 处理与leader的通信
                     zks.getFollower().request(request);
                     break;
                 case OpCode.create:
@@ -93,6 +95,7 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
                 case OpCode.setACL:
                 case OpCode.multi:
                 case OpCode.check:
+                    // 处理与leader的通信
                     zks.getFollower().request(request);
                     break;
                 case OpCode.createSession:
@@ -117,6 +120,7 @@ public class FollowerRequestProcessor extends ZooKeeperCriticalThread implements
             // an upgrade.
             Request upgradeRequest = null;
             try {
+                // 更新本地session
                 upgradeRequest = zks.checkUpgradeSession(request);
             } catch (KeeperException ke) {
                 if (request.getHdr() != null) {

@@ -359,6 +359,7 @@ public class Learner {
      * @throws IOException
      * @throws InterruptedException
      */
+    // 同步leader的命令
     protected void syncWithLeader(long newLeaderZxid) throws Exception{
         QuorumPacket ack = new QuorumPacket(Leader.ACK, 0, null, null);
         QuorumPacket qp = new QuorumPacket();
@@ -371,8 +372,10 @@ public class Learner {
         boolean snapshotNeeded = true;
         readPacket(qp);
         LinkedList<Long> packetsCommitted = new LinkedList<Long>();
+        // 待提交的数据包
         LinkedList<PacketInFlight> packetsNotCommitted = new LinkedList<PacketInFlight>();
         synchronized (zk) {
+            // 如果是DIFF，则follower和leader的zxid是一致的
             if (qp.getType() == Leader.DIFF) {
                 LOG.info("Getting a diff from the leader 0x{}", Long.toHexString(qp.getZxid()));
                 snapshotNeeded = false;
@@ -424,6 +427,7 @@ public class Learner {
             while (self.isRunning()) {
                 readPacket(qp);
                 switch(qp.getType()) {
+                    // 如果是发起了提议
                 case Leader.PROPOSAL:
                     PacketInFlight pif = new PacketInFlight();
                     pif.hdr = new TxnHeader();
@@ -441,13 +445,15 @@ public class Learner {
                        QuorumVerifier qv = self.configFromString(new String(setDataTxn.getData()));
                        self.setLastSeenQuorumVerifier(qv, true);                               
                     }
-                    
+                    // 添加到待提交的数据包，异步处理
                     packetsNotCommitted.add(pif);
                     break;
+                    // 如果到了commit
                 case Leader.COMMIT:
                 case Leader.COMMITANDACTIVATE:
                     pif = packetsNotCommitted.peekFirst();
                     if (pif.hdr.getZxid() == qp.getZxid() && qp.getType() == Leader.COMMITANDACTIVATE) {
+                        // 更新本机集群配置信息
                         QuorumVerifier qv = self.configFromString(new String(((SetDataTxn) pif.rec).getData()));
                         boolean majorChange = self.processReconfig(qv, ByteBuffer.wrap(qp.getData()).getLong(),
                                 qp.getZxid(), true);
@@ -459,13 +465,16 @@ public class Learner {
                         if (pif.hdr.getZxid() != qp.getZxid()) {
                             LOG.warn("Committing " + qp.getZxid() + ", but next proposal is " + pif.hdr.getZxid());
                         } else {
+                            // 更新本机zk内存数据
                             zk.processTxn(pif.hdr, pif.rec);
                             packetsNotCommitted.remove();
                         }
                     } else {
+                        // 如果需要记录到日志，则将数据保存到commit
                         packetsCommitted.add(qp.getZxid());
                     }
                     break;
+                    // 这两个数据都是leader发送给observer的
                 case Leader.INFORM:
                 case Leader.INFORMANDACTIVATE:
                     PacketInFlight packet = new PacketInFlight();
@@ -476,6 +485,7 @@ public class Learner {
                         long suggestedLeaderId = buffer.getLong();
                         byte[] remainingdata = new byte[buffer.remaining()];
                         buffer.get(remainingdata);
+                        // 更新本机集群配置信息
                         packet.rec = SerializeUtils.deserializeTxn(remainingdata, packet.hdr);
                         QuorumVerifier qv = self.configFromString(new String(((SetDataTxn)packet.rec).getData()));
                         boolean majorChange =
@@ -504,7 +514,8 @@ public class Learner {
 
                     break;                
                 case Leader.UPTODATE:
-                    LOG.info("Learner received UPTODATE message");                                      
+                    LOG.info("Learner received UPTODATE message");
+                    // 如果newLEADER产生了，需要重新选举
                     if (newLeaderQV!=null) {
                        boolean majorChange =
                            self.processReconfig(newLeaderQV, null, null, true);
@@ -545,8 +556,10 @@ public class Learner {
             }
         }
         ack.setZxid(ZxidUtils.makeZxid(newEpoch, 0));
+        // 发送leader ack消息
         writePacket(ack, true);
         sock.setSoTimeout(self.tickTime * self.syncLimit);
+        // 启动zk server响应客户端请求
         zk.startup();
         /*
          * Update the election vote here to ensure that all members of the

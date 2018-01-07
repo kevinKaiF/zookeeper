@@ -53,10 +53,16 @@ public class SerializeUtils {
             throws IOException {
         final ByteArrayInputStream bais = new ByteArrayInputStream(txnBytes);
         InputArchive ia = BinaryInputArchive.getArchive(bais);
-
+        // 反序列化TxnHeader的数据
+        //  private long clientId;
+        //  private int cxid;
+        //  private long zxid;
+        //  private long time;
+        //  private int type;
         hdr.deserialize(ia, "hdr");
         bais.mark(bais.available());
         Record txn = null;
+        // 按不同类型反序列化自己的数据
         switch (hdr.getType()) {
         case OpCode.createSession:
             // This isn't really an error txn; it just has the same

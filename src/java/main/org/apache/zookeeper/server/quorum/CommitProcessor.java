@@ -130,6 +130,7 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements
     }
 
     protected boolean needCommit(Request request) {
+        // 但凡修改数据都需要commit
         switch (request.type) {
             case OpCode.create:
             case OpCode.create2:
@@ -208,6 +209,7 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements
                         requests.addLast(request);
                     }
                     else {
+                        // 异步处理请求
                         sendToNextProcessor(request);
                     }
                     /*
@@ -232,6 +234,7 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements
                 }
 
                 // Handle a single committed request
+                // 等待所有的请求处理完毕
                 if (commitIsWaiting && !stopped){
                     waitForEmptyPool();
 
@@ -274,14 +277,16 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements
                         request = topPending;
                     }
 
+                    // 需要再次异步处理
                     sendToNextProcessor(request);
-
+                    // 等待处理结束
                     waitForEmptyPool();
 
                     /*
                      * Process following reads if any, remove session queue if
                      * empty.
                      */
+                    // 一直处理
                     if (sessionQueue != null) {
                         while (!stopped && !sessionQueue.isEmpty()
                                 && !needCommit(sessionQueue.peek())) {
@@ -396,6 +401,7 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements
         if (LOG.isDebugEnabled()) {
             LOG.debug("Processing request:: " + request);
         }
+        // 请求入队
         queuedRequests.add(request);
         wakeup();
     }

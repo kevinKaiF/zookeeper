@@ -149,7 +149,7 @@ public class FileTxnLog implements TxnLog {
 
 
     /**
-     * 刷出当前日志文件，开始新的日志文件
+     * 刷出当前日志文件，开始新的日志文件,并清空logStream
      *
      * rollover the current log file to a new one.
      * @throws IOException
@@ -571,6 +571,7 @@ public class FileTxnLog implements TxnLog {
             init();
 
             // 如果向后读取，而且TxnHeader存在，则查找大于zxid的hdr
+            // fastForward表示是否向后查找，找到最接近zxid的数据
             if (fastForward && hdr != null) {
                 while (hdr.getZxid() < zxid) {
                     if (!next())
@@ -614,6 +615,7 @@ public class FileTxnLog implements TxnLog {
             // 获取最后一个/最老的日志文件
             goToNextLog();
             // 反序列化
+            // 这个next表示从最后一个文件 从头开始读取数据
             if (!next())
                 return;
         }
@@ -638,6 +640,7 @@ public class FileTxnLog implements TxnLog {
         private boolean goToNextLog() throws IOException {
             if (storedFiles.size() > 0) {
                 // 移除最后一个文件
+                // 获取最新的日志文件
                 this.logFile = storedFiles.remove(storedFiles.size()-1);
                 // 创建inputStream
                 ia = createInputArchive(this.logFile);
@@ -704,7 +707,16 @@ public class FileTxnLog implements TxnLog {
                 return false;
             }
             try {
+                // 数据格式
+                // crcvalue 8个字节
+                // txtEntry.length 4个字节
+                // txtEntry    txtEntry.length个字节
+
+                // txtEntry数据体包含 hdr txn
                 long crcValue = ia.readLong("crcvalue");
+                // 读取 txtEntry
+                // 先读取txtEntry对应的字节长度，再读取txtEntry的数据体
+                // 说明每个日志文件存储的是txtEntry
                 byte[] bytes = Util.readTxnBytes(ia);
                 // Since we preallocate, we define EOF to be an
                 if (bytes == null || bytes.length==0) {

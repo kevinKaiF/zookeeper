@@ -71,6 +71,8 @@ public class ZKDatabase {
      */
     protected DataTree dataTree;
     // sessionId与timeout的映射
+    // 记录了所有存活的session
+    // key:clientId,value:sessionTimeout
     protected ConcurrentHashMap<Long, Integer> sessionsWithTimeouts;
     protected FileTxnSnapLog snapLog;
     protected long minCommittedLog, maxCommittedLog;

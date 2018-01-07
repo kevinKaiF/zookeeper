@@ -53,6 +53,7 @@ public class LeaderRequestProcessor implements RequestProcessor {
         // an ephemeral node, in which case we upgrade the session
         Request upgradeRequest = null;
         try {
+            // 更新本地session
             upgradeRequest = lzks.checkUpgradeSession(request);
         } catch (KeeperException ke) {
             if (request.getHdr() != null) {

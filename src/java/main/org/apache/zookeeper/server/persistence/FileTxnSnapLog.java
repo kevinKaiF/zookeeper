@@ -175,9 +175,12 @@ public class FileTxnSnapLog {
      * @return the highest zxid restored
      * @throws IOException
      */
+    // 返回最新的zxid
+    // 这个zxid可能snaptshot的，也可能是log的
     public long restore(DataTree dt, Map<Long, Integer> sessions,
             PlayBackListener listener) throws IOException {
         // 从快照文件中获取最新的zxid，如果是首次启动zk，deserializeResult = -1
+        // dt.lastProcessedZxid 就是快照目录下最新的快照文件后缀名
         long deserializeResult = snapLog.deserialize(dt, sessions);
         // dataDir 日志文件目录
         FileTxnLog txnLog = new FileTxnLog(dataDir);
@@ -220,6 +223,8 @@ public class FileTxnSnapLog {
         }
         // 这里加1 表示从dt.lastProcessedZxid开始查找data日志文件
         // 升序读取
+        // 从日志目录下读取最新的日志文件，这里做了向后查找
+        // 也就是说这个itr读取到的数据是接近dt.lastProcessedZxid位置的数据
         TxnIterator itr = txnLog.read(dt.lastProcessedZxid+1);
         long highestZxid = dt.lastProcessedZxid;
         TxnHeader hdr;
@@ -227,6 +232,7 @@ public class FileTxnSnapLog {
             while (true) {
                 // iterator points to
                 // the first valid txn when initialized
+                // 获取日志的头部
                 hdr = itr.getHeader();
                 if (hdr == null) {
                     //empty logs
@@ -234,6 +240,7 @@ public class FileTxnSnapLog {
                 }
 
                 // 因为是txnLog是升序读取，至少hdr的zxid是大于等于lastProcessedZxid+1
+                // 每次循环读取的zxid应该要比上次读取的zxid要大
                 if (hdr.getZxid() < highestZxid && highestZxid != 0) {
                     LOG.error("{}(higestZxid) > {}(next log) for type {}",
                             new Object[] { highestZxid, hdr.getZxid(),
@@ -298,7 +305,9 @@ public class FileTxnSnapLog {
     public void processTransaction(TxnHeader hdr,DataTree dt,
             Map<Long, Integer> sessions, Record txn)
         throws KeeperException.NoNodeException {
+        // 日志数据处理的结果，主要用于校验是否成功
         ProcessTxnResult rc;
+        // 解析txtHeader的类型
         switch (hdr.getType()) {
         case OpCode.createSession:
             // 如果是创建session，则添加session
@@ -312,6 +321,7 @@ public class FileTxnSnapLog {
                                 + ((CreateSessionTxn) txn).getTimeOut());
             }
             // give dataTree a chance to sync its lastProcessedZxid
+            // 将日志中的数据恢复到内存，更新dataTree的内存数据
             rc = dt.processTxn(hdr, txn);
             break;
         case OpCode.closeSession:
@@ -322,10 +332,11 @@ public class FileTxnSnapLog {
                         "playLog --- close session in log: 0x"
                                 + Long.toHexString(hdr.getClientId()));
             }
+            // 更新dataTree的内存数据
             rc = dt.processTxn(hdr, txn);
             break;
         default:
-            // 更新内存的数据
+            // 更新dataTree的内存数据
             rc = dt.processTxn(hdr, txn);
         }
 

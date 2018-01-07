@@ -66,6 +66,7 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
     }
 
     @Override
+    // followerRequestProcessor->commitProcessor->finalRequestProcessor
     protected void setupRequestProcessors() {
         RequestProcessor finalProcessor = new FinalRequestProcessor(this);
         commitProcessor = new CommitProcessor(finalProcessor,

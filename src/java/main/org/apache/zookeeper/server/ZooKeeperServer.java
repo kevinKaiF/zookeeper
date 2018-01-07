@@ -73,13 +73,14 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
     public static final int DEFAULT_TICK_TIME = 3000;
     protected int tickTime = DEFAULT_TICK_TIME;
     /** value of -1 indicates unset, use default */
+    // minSessionTimeout 和 maxSessionTimeout就是限制sessionTimeout的范围
     protected int minSessionTimeout = -1;
     /** value of -1 indicates unset, use default */
     protected int maxSessionTimeout = -1;
     protected SessionTracker sessionTracker;
     private FileTxnSnapLog txnLogFactory = null;
     private ZKDatabase zkDb;
-    // 维护服务器端的zxid
+    // 维护服务器端的zxid zxid从0开始
     private final AtomicLong hzxid = new AtomicLong(0);
     public final static Exception ok = new Exception("No prob");
     protected RequestProcessor firstProcessor;
@@ -260,6 +261,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
          * See ZOOKEEPER-1642 for more detail.
          */
         // 如果没有初始化则加载数据到内存
+        // 从日志中恢复最新的zxid
         if(zkDb.isInitialized()){
             setZxid(zkDb.getDataTreeLastProcessedZxid());
         }
@@ -283,12 +285,14 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
         }
 
         // Make a clean snapshot
-        // 保存snapshot
+        // 保存snapshot，snapshot.zxid格式
+        // zxid是zkDb最新的zxid
         takeSnapshot();
     }
 
     public void takeSnapshot(){
         try {
+            // sessionWithTimeouts 是所有存活的session
             txnLogFactory.save(zkDb.getDataTree(), zkDb.getSessionWithTimeOuts());
         } catch (IOException e) {
             LOG.error("Severe unrecoverable error, exiting", e);
@@ -299,6 +303,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
     }
 
     @Override
+    // 计算日志文件下所有数据的字节数目
     public long getDataDirSize() {
         if (zkDb == null) {
             return 0L;
@@ -308,6 +313,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
     }
 
     @Override
+    // 计算快照日志文件下所有数据的字节数目
     public long getLogDirSize() {
         if (zkDb == null) {
             return 0L;
@@ -652,6 +658,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
         }
 
         // sessionId的创建就是由sessionTracker底层的AtomicLong自增实现的
+        // 并将sessionId保存到sessionsWithTimeout,记录存活的session
         long sessionId = sessionTracker.createSession(timeout);
         Random r = new Random(sessionId ^ superSecret);
         r.nextBytes(passwd);
@@ -795,8 +802,10 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
             boolean validpacket = Request.isValid(si.type);
             if (validpacket) {
                 // 处理请求
+                // firstProcessor是链表，链式处理客户端的请求
                 firstProcessor.processRequest(si);
                 if (si.cnxn != null) {
+                    // 计数正在处理的数目
                     incInProcess();
                 }
             } else {
@@ -813,6 +822,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
     }
 
     public static int getSnapCount() {
+        // 内存中累计snapshot的数量
         String sc = System.getProperty("zookeeper.snapCount");
         try {
             int snapCount = Integer.parseInt(sc);
@@ -1049,7 +1059,6 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
             // 首次创建的sessionId为1
             createSession(cnxn, passwd, sessionTimeout);
         } else {
-            // 如果session不为0，则关闭老session
             long clientSessionId = connReq.getSessionId();
             LOG.info("Client attempting to renew session 0x"
                     + Long.toHexString(clientSessionId)
@@ -1062,6 +1071,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
             }
             cnxn.setSessionId(sessionId);
             // 更新session，并响应客户端session
+            // 校验session,如果session不一致，关闭连接
             reopenSession(cnxn, sessionId, passwd, sessionTimeout);
         }
     }

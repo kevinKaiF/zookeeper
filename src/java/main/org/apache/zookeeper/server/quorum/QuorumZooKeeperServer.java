@@ -183,6 +183,7 @@ public abstract class QuorumZooKeeperServer extends ZooKeeperServer {
     }
 
     @Override
+    // 设置zookeeperServer的运行状态
     protected void setState(State state) {
         this.state = state;
     }

@@ -41,6 +41,7 @@ import java.util.concurrent.TimeUnit;
  * FinalRequestProcessor
  */
 public class LeaderZooKeeperServer extends QuorumZooKeeperServer {
+    // containerManager负责定时清理zk中的container和ttl目录
     private ContainerManager containerManager;  // guarded by sync
 
 
@@ -62,6 +63,11 @@ public class LeaderZooKeeperServer extends QuorumZooKeeperServer {
     }
 
     @Override
+    // leaderRequestProcessor->preRequestProcessor->proposalProcessor
+    // ->commitProcessor->ToBeAppliedRequestProcessor->finalRequestProcessor
+
+    // 其中commitProcessor是异步的
+    // proposalRequestProcessor内部有个SyncRequestProcessor也是异步的
     protected void setupRequestProcessors() {
         RequestProcessor finalProcessor = new FinalRequestProcessor(this);
         RequestProcessor toBeAppliedProcessor = new Leader.ToBeAppliedRequestProcessor(finalProcessor, getLeader());

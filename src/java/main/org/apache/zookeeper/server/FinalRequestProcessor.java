@@ -128,6 +128,9 @@ public class FinalRequestProcessor implements RequestProcessor {
 
             // do not add non quorum packets to the queue.
             // 是否是quorum packet
+
+            // 凡是修改数据的请求，需要投票提议
+            // 如果是写操作的请求，需要提议
             if (request.isQuorum()) {
                 // 添加到提议？
                 zks.getZKDatabase().addCommittedProposal(request);

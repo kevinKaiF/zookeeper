@@ -92,6 +92,7 @@ public class Leader {
 
     final QuorumPeer self;
 
+    // 会议结束
     private boolean quorumFormed = false;
 
     // the follower acceptor thread
@@ -335,11 +336,13 @@ public class Leader {
     /**
      * Similar to COMMIT, only for a reconfig operation.
      */
+    // 重新配置本机集群信息
     final static int COMMITANDACTIVATE = 9;
     
     /**
      * Similar to INFORM, only for a reconfig operation.
      */
+    // 重新配置本机集群信息
     final static int INFORMANDACTIVATE = 19;
     
     final ConcurrentMap<Long, Proposal> outstandingProposals = new ConcurrentHashMap<Long, Proposal>();
@@ -988,7 +991,6 @@ public class Leader {
 
     /**
      * Create an inform packet and send it to all observers.
-     * @param zxid
      * @param proposal
      */
     public void inform(Proposal proposal) {
@@ -1000,7 +1002,6 @@ public class Leader {
     
     /**
      * Create an inform&activate packet and send it to all observers.
-     * @param zxid
      * @param proposal
      */
     public void informAndActivate(Proposal proposal, long designatedLeader) {
@@ -1117,7 +1118,6 @@ public class Leader {
     /**
      * Sends a sync message to the appropriate server
      *
-     * @param f
      * @param r
      */
 
@@ -1173,14 +1173,19 @@ public class Leader {
     private final HashSet<Long> connectingFollowers = new HashSet<Long>();
     public long getEpochToPropose(long sid, long lastAcceptedEpoch) throws InterruptedException, IOException {
         synchronized(connectingFollowers) {
+            // 是否需要更新代数
             if (!waitingForNewEpoch) {
                 return epoch;
             }
+            // 如果对方的epoch不小于自己，leader的代数增1
+            // 有点像下一代皇帝的感觉
             if (lastAcceptedEpoch >= epoch) {
                 epoch = lastAcceptedEpoch+1;
             }
+            // 记录到follower
             connectingFollowers.add(sid);
             QuorumVerifier verifier = self.getQuorumVerifier();
+            // 如果是集群成员且集群投票成员过半
             if (connectingFollowers.contains(self.getId()) &&
                                             verifier.containsQuorum(connectingFollowers)) {
                 waitingForNewEpoch = false;
@@ -1188,13 +1193,17 @@ public class Leader {
                 self.setAcceptedEpoch(epoch);
                 connectingFollowers.notifyAll();
             } else {
+                // 否则需要等待一会，可能因为网络问题
                 long start = Time.currentElapsedTime();
                 long cur = start;
                 long end = start + self.getInitLimit()*self.getTickTime();
+                // 等待initLimit
                 while(waitingForNewEpoch && cur < end) {
                     connectingFollowers.wait(end - cur);
                     cur = Time.currentElapsedTime();
                 }
+
+                // 如果走到这里，说明wait没有被notify,即等待超时了
                 if (waitingForNewEpoch) {
                     throw new InterruptedException("Timeout while waiting for epoch from quorum");
                 }
@@ -1223,6 +1232,7 @@ public class Leader {
                 }
             }
             QuorumVerifier verifier = self.getQuorumVerifier();
+            // 如果选举的成员包含对方的serverId且集群投票人员过半，则选举结束
             if (electingFollowers.contains(self.getId()) && verifier.containsQuorum(electingFollowers)) {
                 electionFinished = true;
                 electingFollowers.notifyAll();
@@ -1327,8 +1337,9 @@ public class Leader {
              * Note that addAck already checks that the learner
              * is a PARTICIPANT.
              */
+            // 记录集群leader收到follower,observer的ack
             newLeaderProposal.addAck(sid);
-
+            // 如果集群数目过半
             if (newLeaderProposal.hasAllQuorums()) {
                 quorumFormed = true;
                 newLeaderProposal.qvAcksetPairs.notifyAll();

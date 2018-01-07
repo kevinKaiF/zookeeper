@@ -90,6 +90,7 @@ import java.util.concurrent.LinkedBlockingQueue;
  * outstandingRequests, so that it can take into account transactions that are
  * in the queue to be applied when generating a transaction.
  */
+// 统计zk数据更改的记录
 public class PrepRequestProcessor extends ZooKeeperCriticalThread implements
         RequestProcessor {
     private static final Logger LOG = LoggerFactory.getLogger(PrepRequestProcessor.class);
@@ -750,6 +751,7 @@ public class PrepRequestProcessor extends ZooKeeperCriticalThread implements
             case OpCode.create:
             case OpCode.create2:
                 CreateRequest create2Request = new CreateRequest();
+                // 递增zxid
                 pRequest2Txn(request.type, zks.getNextZxid(), request, create2Request, true);
                 break;
             case OpCode.createTTL:
