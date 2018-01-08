@@ -29,6 +29,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * 将请求log到磁盘，高效的批量io处理。当请求同步到磁盘才会传递给下个processor
+ *
  * This RequestProcessor logs requests to disk. It batches the requests to do
  * the io efficiently. The request is not passed to the next RequestProcessor
  * until its log has been synced to disk.
@@ -67,6 +68,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
     /**
      * The number of log entries to log before starting a snapshot
      */
+    // 内存中日志的批量数目
     private static int snapCount = ZooKeeperServer.getSnapCount();
 
     private final Request requestOfDeath = Request.requestOfDeath;
@@ -127,6 +129,13 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
                     // track the number of records written to the log
                     // 将Request的TxnHeader和Record序列化到FileTxnSnapLog目录
                     // 如果没有TxnHeader，则不记录到日志
+
+                    // 追加log日志记录
+                    // log记录了所有请求的日志数据，而snapshot只记录了当前zkDb的内存数据
+                    // 如果lastProcessedZxid有变更，snapshot会生成新的快照日志文件
+                    // 写入快照文件的文件头，写入当前的session数据，写入当前的dataTree数据
+
+                    // 这些日志都是写入请求，所以zxid会递增，roll之后会生成新的日志文件
                     if (zks.getZKDatabase().append(si)) {
                         logCount++;
                         // 如果大半数目，则刷出日志
@@ -168,6 +177,7 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
                         continue;
                     }
 
+                    // 刷新日志数据
                     toFlush.add(si);
                     if (toFlush.size() > 1000) {
                         flush(toFlush);

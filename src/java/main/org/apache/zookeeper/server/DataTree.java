@@ -242,6 +242,7 @@ public class DataTree {
     
     public DataTree() {
         /* Rather than fight it, let root have an alias */
+        // nodes 会将 ""和/ 写入root
         nodes.put("", root);
         nodes.put(rootZookeeper, root);
 
@@ -1086,6 +1087,7 @@ public class DataTree {
          * with the file.
          */
         // 更新最后处理的zxid
+        // 每次处理完请求，都需要更新lastProcessedZxid
         if (rc.zxid > lastProcessedZxid) {
             lastProcessedZxid = rc.zxid;
         }
@@ -1315,7 +1317,9 @@ public class DataTree {
     }
 
     public void serialize(OutputArchive oa, String tag) throws IOException {
+        // 写出acl缓存
         aclCache.serialize(oa);
+        // 这里的new StringBuilder("")是获取根节点root
         serializeNode(oa, new StringBuilder(""));
         // / marks end of stream
         // we need to check if clear had been called in between the snapshot.

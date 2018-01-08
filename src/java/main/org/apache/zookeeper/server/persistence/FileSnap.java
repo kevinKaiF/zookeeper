@@ -218,6 +218,7 @@ public class FileSnap implements SnapShot {
         if(header==null)
             throw new IllegalStateException(
                     "Snapshot's not open for writing: uninitialized header");
+        // 将FileHeader序列化，写入文件头
         header.serialize(oa, "fileheader");
         SerializeUtils.serializeSnapshot(dt,oa,sessions);
     }
@@ -228,6 +229,7 @@ public class FileSnap implements SnapShot {
      * @param sessions the sessions to be serialized
      * @param snapShot the file to store snapshot into
      */
+    // 这个sessions是zkDb的sessionsWithTimeouts，也就是当前存活的session
     public synchronized void serialize(DataTree dt, Map<Long, Integer> sessions, File snapShot)
             throws IOException {
         if (!close) {
@@ -235,9 +237,11 @@ public class FileSnap implements SnapShot {
             CheckedOutputStream crcOut = new CheckedOutputStream(sessOS, new Adler32());
             //CheckedOutputStream cout = new CheckedOutputStream()
             OutputArchive oa = BinaryOutputArchive.getArchive(crcOut);
+            // 写入文件头
             FileHeader header = new FileHeader(SNAP_MAGIC, VERSION, dbId);
             serialize(dt,sessions,oa, header);
             long val = crcOut.getChecksum().getValue();
+            // 写入校验和
             oa.writeLong(val, "val");
             oa.writeString("/", "path");
             sessOS.flush();
