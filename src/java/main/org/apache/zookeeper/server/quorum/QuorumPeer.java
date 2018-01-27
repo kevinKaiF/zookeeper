@@ -474,6 +474,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     /**
      * The number of milliseconds of each tick
      */
+    // 与follower,observer的ping间隔,时间位tickTime/2
     protected int tickTime;
 
     /**

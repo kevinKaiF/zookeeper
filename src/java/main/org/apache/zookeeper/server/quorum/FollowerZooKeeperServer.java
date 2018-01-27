@@ -67,6 +67,7 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
 
     @Override
     // followerRequestProcessor->commitProcessor->finalRequestProcessor
+    // syncRequestProcessor
     protected void setupRequestProcessors() {
         RequestProcessor finalProcessor = new FinalRequestProcessor(this);
         commitProcessor = new CommitProcessor(finalProcessor,
@@ -86,6 +87,7 @@ public class FollowerZooKeeperServer extends LearnerZooKeeperServer {
         if ((request.zxid & 0xffffffffL) != 0) {
             pendingTxns.add(request);
         }
+        // 异步处理
         syncProcessor.processRequest(request);
     }
 

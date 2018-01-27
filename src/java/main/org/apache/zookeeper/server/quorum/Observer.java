@@ -105,6 +105,7 @@ public class Observer extends Learner{
             ping(qp);
             break;
         case Leader.PROPOSAL:
+            // 如果是提议就忽略了
             LOG.warn("Ignoring proposal");
             break;
         case Leader.COMMIT:
@@ -120,6 +121,7 @@ public class Observer extends Learner{
             ((ObserverZooKeeperServer)zk).sync();
             break;
         case Leader.INFORM:
+            // leader提议的确认
             TxnHeader hdr = new TxnHeader();
             Record txn = SerializeUtils.deserializeTxn(qp.getData(), hdr);
             Request request = new Request (hdr.getClientId(),  hdr.getCxid(), hdr.getType(), hdr, txn, 0);

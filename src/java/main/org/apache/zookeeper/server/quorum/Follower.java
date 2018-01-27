@@ -121,7 +121,8 @@ public class Follower extends Learner{
         case Leader.PING:            
             ping(qp);            
             break;
-        case Leader.PROPOSAL:           
+        case Leader.PROPOSAL:
+            // 如果接收到leader的提议
             TxnHeader hdr = new TxnHeader();
             Record txn = SerializeUtils.deserializeTxn(qp.getData(), hdr);
             if (hdr.getZxid() != lastQueued + 1) {
@@ -130,8 +131,10 @@ public class Follower extends Learner{
                         + " expected 0x"
                         + Long.toHexString(lastQueued + 1));
             }
+            // 记录最新的leader的提议zxid,这个提议中request是集群中的某一个follower,observer发起的
             lastQueued = hdr.getZxid();
-            
+
+            // 如果是更新集群配置
             if (hdr.getType() == OpCode.reconfig){
                SetDataTxn setDataTxn = (SetDataTxn) txn;       
                QuorumVerifier qv = self.configFromString(new String(setDataTxn.getData()));
