@@ -290,6 +290,9 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
         takeSnapshot();
     }
 
+    // 刷出快照的地方有两个
+    // 一个learner，即follower和observer同步leader的时候
+    // 一个是synRequestProcessor记录客户端request的时候
     public void takeSnapshot(){
         try {
             // sessionWithTimeouts 是所有存活的session

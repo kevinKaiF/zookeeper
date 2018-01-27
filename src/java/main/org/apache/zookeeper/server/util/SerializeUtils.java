@@ -146,6 +146,7 @@ public class SerializeUtils {
     public static void serializeSnapshot(DataTree dt,OutputArchive oa,
             Map<Long, Integer> sessions) throws IOException {
         HashMap<Long, Integer> sessSnap = new HashMap<Long, Integer>(sessions);
+        // 序列化当前存活的session数据到文件头
         oa.writeInt(sessSnap.size(), "count");
         for (Entry<Long, Integer> entry : sessSnap.entrySet()) {
             oa.writeLong(entry.getKey().longValue(), "id");

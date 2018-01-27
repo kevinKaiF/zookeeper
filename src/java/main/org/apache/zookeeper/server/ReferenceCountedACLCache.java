@@ -38,6 +38,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public class ReferenceCountedACLCache {
     private static final Logger LOG = LoggerFactory.getLogger(ReferenceCountedACLCache.class);
 
+    // key:aclIndex，value:list<acl>
     final Map<Long, List<ACL>> longKeyMap =
             new HashMap<Long, List<ACL>>();
 
@@ -51,6 +52,7 @@ public class ReferenceCountedACLCache {
     /**
      * these are the number of acls that we have in the datatree
      */
+    // 维护acl的index数据
     long aclIndex = 0;
 
     /**

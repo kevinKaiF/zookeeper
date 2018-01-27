@@ -115,9 +115,11 @@ public class FileTxnLog implements TxnLog {
 
     File logDir;
     private final boolean forceSync = !System.getProperty("zookeeper.forceSync", "yes").equals("no");;
+    // 目前只是0
     long dbId;
     private LinkedList<FileOutputStream> streamsToFlush =
         new LinkedList<FileOutputStream>();
+    // 当前文件的position
     long currentSize;
     File logFileWrite = null;
 
@@ -149,7 +151,8 @@ public class FileTxnLog implements TxnLog {
 
 
     /**
-     * 刷出当前日志文件，开始新的日志文件,并清空logStream
+     * 刷出当前日志文件，并清空logStream
+     * 表示要开始新的日志文件了
      *
      * rollover the current log file to a new one.
      * @throws IOException
@@ -185,11 +188,13 @@ public class FileTxnLog implements TxnLog {
         throws IOException
     {
         if (hdr != null) {
+            // lastZxidSeen 是0
             if (hdr.getZxid() <= lastZxidSeen) {
                 LOG.warn("Current zxid " + hdr.getZxid()
                         + " is <= " + lastZxidSeen + " for "
                         + hdr.getType());
             }
+            // data日志没有创建则将FileHeader写入文件头部
             if (logStream==null) {
                if(LOG.isInfoEnabled()){
                     LOG.info("Creating new log file: log." +  
@@ -207,12 +212,13 @@ public class FileTxnLog implements TxnLog {
                fhdr.serialize(oa, "fileheader");
                // Make sure that the magic number is written before padding.
                logStream.flush();
+                // 当前文件的position
                currentSize = fos.getChannel().position();
                streamsToFlush.add(fos);
             }
             // 扩大currentSize
             padFile(fos);
-            // 序列化TxnHeader
+            // 序列化TxnHeader和txn对应的数据
             byte[] buf = Util.marshallTxnEntry(hdr, txn);
             if (buf == null || buf.length == 0) {
                 throw new IOException("Faulty serialization for header " +
@@ -220,9 +226,11 @@ public class FileTxnLog implements TxnLog {
             }
             Checksum crc = makeChecksumAlgorithm();
             crc.update(buf, 0, buf.length);
+            // 先写入校验和，再写入 序列化TxnHeader和txn对应的数据
             // 写出校验和
             oa.writeLong(crc.getValue(), "txnEntryCRC");
             // 写出TxnHeader
+            // 序列化TxnHeader和txn对应的数据作为txnEntry
             Util.writeTxnBytes(oa, buf);
             
             return true;
