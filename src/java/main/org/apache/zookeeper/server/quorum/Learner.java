@@ -151,6 +151,7 @@ public class Learner {
      * @throws IOException
      */
     void readPacket(QuorumPacket pp) throws IOException {
+        // 如果leader关闭了服务器，则会抛出IO异常
         synchronized (leaderIs) {
             leaderIs.readRecord(pp, "packet");
         }

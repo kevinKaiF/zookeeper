@@ -551,6 +551,9 @@ public class FastLeaderElection implements Election {
     QuorumPeer self;
     Messenger messenger;
     // 投票轮数计数
+    /**
+     * 因为{@link QuorumPeer#electionAlg}是单例的，所以logicalclock只会累计
+     */
     AtomicLong logicalclock = new AtomicLong(); /* Election instance */
     long proposedLeader;
     long proposedZxid;
@@ -942,7 +945,7 @@ public class FastLeaderElection implements Election {
 
             synchronized(this){
                 logicalclock.incrementAndGet();
-                // 更新会议
+                // 更新提议
                 updateProposal(getInitId(), getInitLastLoggedZxid(), getPeerEpoch());
             }
 

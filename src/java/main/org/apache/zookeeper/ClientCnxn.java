@@ -464,6 +464,7 @@ public class ClientCnxn {
             }
             WatcherSetEventPair pair = new WatcherSetEventPair(watchers, event);
             // queue the pair (watch set & event) for later processing
+            // event和event对应的watcher入队异步处理
             waitingEvents.add(pair);
         }
 
@@ -496,6 +497,7 @@ public class ClientCnxn {
                  if (event == eventOfDeath) {
                     wasKilled = true;
                  } else {
+                     // 触发watcher
                     processEvent(event);
                  }
                  if (wasKilled)
@@ -521,6 +523,7 @@ public class ClientCnxn {
                   WatcherSetEventPair pair = (WatcherSetEventPair) event;
                   for (Watcher watcher : pair.watchers) {
                       try {
+                          // 触发注册的watcher
                           watcher.process(pair.event);
                       } catch (Throwable t) {
                           LOG.error("Error while calling watcher ", t);
@@ -715,12 +718,14 @@ public class ClientCnxn {
     void queueEvent(String clientPath, int err,
             Set<Watcher> materializedWatchers, EventType eventType) {
         KeeperState sessionState = KeeperState.SyncConnected;
+        // 如果是session过期，或者连接丢失，都处理为Event.KeeperState.Disconnected
         if (KeeperException.Code.SESSIONEXPIRED.intValue() == err
                 || KeeperException.Code.CONNECTIONLOSS.intValue() == err) {
             sessionState = Event.KeeperState.Disconnected;
         }
         WatchedEvent event = new WatchedEvent(eventType, sessionState,
                 clientPath);
+        // 将event和event对应的watcher入队，异步处理
         eventThread.queueEvent(event, materializedWatchers);
     }
 
@@ -792,6 +797,7 @@ public class ClientCnxn {
      * This class services the outgoing request queue and generates the heart
      * beats. It also spawns the ReadThread.
      */
+    // 处理与zk服务器的通信
     class SendThread extends ZooKeeperThread {
         private long lastPingSentNs;
         private final ClientCnxnSocket clientCnxnSocket;
@@ -829,12 +835,16 @@ public class ClientCnxn {
                 }
                 return;
             }
+
+            // 读取server的通知
             if (replyHdr.getXid() == -1) {
                 // -1 means notification
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Got notification sessionid:0x"
                         + Long.toHexString(sessionId));
                 }
+
+                // 反序列化WatcherEvent
                 WatcherEvent event = new WatcherEvent();
                 event.deserialize(bbia, "response");
 
@@ -852,12 +862,14 @@ public class ClientCnxn {
                     }
                 }
 
+                // 解析事件，封装为WatchedEvent, KeepState,EventType
                 WatchedEvent we = new WatchedEvent(event);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Got " + we + " for sessionid 0x"
                             + Long.toHexString(sessionId));
                 }
 
+                // 交给eventThread异步处理
                 eventThread.queueEvent( we );
                 return;
             }
@@ -874,18 +886,23 @@ public class ClientCnxn {
             }
 
             Packet packet;
+            // pendingQueue保存了客户端的请求数据
             synchronized (pendingQueue) {
                 if (pendingQueue.size() == 0) {
                     throw new IOException("Nothing in the queue, but got "
                             + replyHdr.getXid());
                 }
+                // 移除第一个客户端的第一个请求
                 packet = pendingQueue.remove();
             }
             /*
              * Since requests are processed in order, we better get a response
              * to the first request!
              */
+            // 依次序响应
             try {
+                // 如果客户端的第一个请求，与服务端响应的编号Xid不一致
+                // 说明连接出问题了，比如数据包丢失
                 if (packet.requestHeader.getXid() != replyHdr.getXid()) {
                     packet.replyHeader.setErr(
                             KeeperException.Code.CONNECTIONLOSS.intValue());
@@ -901,6 +918,7 @@ public class ClientCnxn {
                 packet.replyHeader.setXid(replyHdr.getXid());
                 packet.replyHeader.setErr(replyHdr.getErr());
                 packet.replyHeader.setZxid(replyHdr.getZxid());
+                // 保存最后响应的zxid
                 if (replyHdr.getZxid() > 0) {
                     lastZxid = replyHdr.getZxid();
                 }
@@ -950,6 +968,7 @@ public class ClientCnxn {
                     clientCnxnSocket.getRemoteSocketAddress());
             isFirstConnect = false;
             long sessId = (seenRwServerBefore) ? sessionId : 0;
+            // 客户端指定的sessionTimeout不一定是有效的，必须是服务端指定的session范围内
             ConnectRequest conReq = new ConnectRequest(0, lastZxid,
                     sessionTimeout, sessId, sessionPasswd);
             // We add backwards since we are pushing into the front
@@ -957,6 +976,7 @@ public class ClientCnxn {
             // TODO: here we have the only remaining use of zooKeeper in
             // this class. It's to be eliminated!
             if (!clientConfig.getBoolean(ZKClientConfig.DISABLE_AUTO_WATCH_RESET)) {
+                // 获取上次的watcher
                 List<String> dataWatches = zooKeeper.getDataWatches();
                 List<String> existWatches = zooKeeper.getExistWatches();
                 List<String> childWatches = zooKeeper.getChildWatches();
@@ -998,6 +1018,7 @@ public class ClientCnxn {
                                                        existWatchesBatch,
                                                        childWatchesBatch);
                         RequestHeader header = new RequestHeader(-8, OpCode.setWatches);
+                        // 将上次的watcher发送给zk server
                         Packet packet = new Packet(header, new ReplyHeader(), sw, null, null);
                         outgoingQueue.addFirst(packet);
                     }
@@ -1036,6 +1057,7 @@ public class ClientCnxn {
         }
 
         private void sendPing() {
+            // 记录最后ping的时间
             lastPingSentNs = System.nanoTime();
             RequestHeader h = new RequestHeader(-2, OpCode.ping);
             queuePacket(h, null, null, null, null, null, null, null, null);
@@ -1068,6 +1090,8 @@ public class ClientCnxn {
                 addr = rwServerAddress;
                 rwServerAddress = null;
             } else {
+                // hostProvider有多个zk server地址
+                // 选取一个zk server地址
                 addr = hostProvider.next(1000);
             }
 
@@ -1094,7 +1118,7 @@ public class ClientCnxn {
                 }
             }
             logStartConnect(addr);
-
+            // 是个同步过程
             clientCnxnSocket.connect(addr);
         }
 
@@ -1123,14 +1147,19 @@ public class ClientCnxn {
             int to;
             long lastPingRwServer = Time.currentElapsedTime();
             final int MAX_SEND_PING_INTERVAL = 10000; //10 seconds
+            // isAlive 表示 this != CLOSED && this != AUTH_FAILED
+            // 即表示客户端或者说programmer不去主动close，这个是一直有效的
             while (state.isAlive()) {
                 try {
+                    // 如果是第一个连接，或者zk server挂了，需要重新连接
                     if (!clientCnxnSocket.isConnected()) {
                         // don't re-establish connection if we are closing
                         if (closing) {
                             break;
                         }
+                        // 如果还没有连接，与zk server建立连接
                         startConnect();
+                        // 建立连接后，更新最新的响应的时间
                         clientCnxnSocket.updateLastSendAndHeard();
                     }
 
@@ -1166,11 +1195,14 @@ public class ClientCnxn {
                                       authState,null));
                             }
                         }
+                        // 如果连接了，判断读取是否超时
                         to = readTimeout - clientCnxnSocket.getIdleRecv();
                     } else {
+                        // 如果未连接，判断连接是否超时
                         to = connectTimeout - clientCnxnSocket.getIdleRecv();
                     }
-                    
+
+                    // 判断是否session过期
                     if (to <= 0) {
                         String warnInfo;
                         warnInfo = "Client session timed out, have not heard from server in "
@@ -1183,14 +1215,20 @@ public class ClientCnxn {
                     }
                     if (state.isConnected()) {
                     	//1000(1 second) is to prevent race condition missing to send the second ping
-                    	//also make sure not to send too many pings when readTimeout is small 
+                    	//also make sure not to send too many pings when readTimeout is small
+                        // 计算下一次ping的时间
                         int timeToNextPing = readTimeout / 2 - clientCnxnSocket.getIdleSend() - 
                         		((clientCnxnSocket.getIdleSend() > 1000) ? 1000 : 0);
                         //send a ping request either time is due or no packet sent out within MAX_SEND_PING_INTERVAL
+                        // 如果下次ping的时间超时或者最后次响应的时间间隔大于MAX_SEND_PING_INTERVAL
+                        // 则发送ping
                         if (timeToNextPing <= 0 || clientCnxnSocket.getIdleSend() > MAX_SEND_PING_INTERVAL) {
                             sendPing();
+                            // 更新最后次发送请求的时间
                             clientCnxnSocket.updateLastSend();
                         } else {
+                            // 如果下次ping的时间间隔比，请求剩余的时间间隔还小
+                            // 那么将请求剩余时间间隔更新
                             if (timeToNextPing < to) {
                                 to = timeToNextPing;
                             }
@@ -1198,6 +1236,7 @@ public class ClientCnxn {
                     }
 
                     // If we are in read-only mode, seek for read/write server
+                    // 如果是只读
                     if (state == States.CONNECTEDREADONLY) {
                         long now = Time.currentElapsedTime();
                         int idlePingRwServer = (int) (now - lastPingRwServer);
@@ -1211,6 +1250,7 @@ public class ClientCnxn {
                         to = Math.min(to, pingRwTimeout - idlePingRwServer);
                     }
 
+                    // 处理IO
                     clientCnxnSocket.doTransport(to, pendingQueue, ClientCnxn.this);
                 } catch (Throwable e) {
                     if (closing) {
@@ -1226,6 +1266,7 @@ public class ClientCnxn {
                         if (e instanceof SessionExpiredException) {
                             LOG.info(e.getMessage() + ", closing socket connection");
                         } else if (e instanceof SessionTimeoutException) {
+                            // session超时
                             LOG.info(e.getMessage() + RETRY_CONN_MSG);
                         } else if (e instanceof EndOfStreamException) {
                             LOG.info(e.getMessage() + RETRY_CONN_MSG);
@@ -1242,6 +1283,8 @@ public class ClientCnxn {
                         }
                         // At this point, there might still be new packets appended to outgoingQueue.
                         // they will be handled in next connection or cleared up if closed.
+                        // 如果session过期，或者session超时，或其他异常
+                        // 关闭socket连接
                         cleanup();
                         if (state.isAlive()) {
                             eventThread.queueEvent(new WatchedEvent(
@@ -1259,8 +1302,10 @@ public class ClientCnxn {
                 // packet to outgoingQueue will be notified of death.
                 cleanup();
             }
+            // 关闭socket
             clientCnxnSocket.close();
             if (state.isAlive()) {
+                // 记录Event.KeeperState.Disconnected，准备连接下个zk服务器？
                 eventThread.queueEvent(new WatchedEvent(Event.EventType.None,
                         Event.KeeperState.Disconnected, null));
             }
@@ -1282,6 +1327,7 @@ public class ClientCnxn {
                 sock.setSoLinger(false, -1);
                 sock.setSoTimeout(1000);
                 sock.setTcpNoDelay(true);
+                // isro isReadOnly
                 sock.getOutputStream().write("isro".getBytes());
                 sock.getOutputStream().flush();
                 sock.shutdownOutput();
@@ -1353,6 +1399,7 @@ public class ClientCnxn {
         void onConnected(int _negotiatedSessionTimeout, long _sessionId,
                 byte[] _sessionPasswd, boolean isRO) throws IOException {
             negotiatedSessionTimeout = _negotiatedSessionTimeout;
+            // session超时
             if (negotiatedSessionTimeout <= 0) {
                 state = States.CLOSED;
 
@@ -1370,11 +1417,13 @@ public class ClientCnxn {
             if (!readOnly && isRO) {
                 LOG.error("Read/write client got connected to read-only server");
             }
+            // 更新session配置
             readTimeout = negotiatedSessionTimeout * 2 / 3;
             connectTimeout = negotiatedSessionTimeout / hostProvider.size();
             hostProvider.onConnected();
             sessionId = _sessionId;
             sessionPasswd = _sessionPasswd;
+            // 如果是只读
             state = (isRO) ?
                     States.CONNECTEDREADONLY : States.CONNECTED;
             seenRwServerBefore |= !isRO;

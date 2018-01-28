@@ -819,6 +819,8 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Dropping request: " + e.getMessage());
             }
+            // 如果leader的zxid溢出了，则leader关闭follower,observer的连接，以及客户端的连接
+            // 那么follower,observer的
         } catch (RequestProcessorException e) {
             LOG.error("Unable to process request:" + e.getMessage(), e);
         }
@@ -1049,6 +1051,7 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
             sessionTimeout = maxSessionTimeout;
         }
         // 设置并更新session的过期时间
+        // 客户端设置的session超时时间，必须在服务端指定的范围内
         cnxn.setSessionTimeout(sessionTimeout);
         // We don't want to receive any packets until we are sure that the
         // session is setup
@@ -1093,7 +1096,8 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
     }
 
     /**
-     * 处理响应
+     * 处理客户端的响应，
+     * 如果是LeaderZookeeperServer，需要直接处理客户端的请求
      *
      * @param cnxn
      * @param incomingBuffer
@@ -1165,6 +1169,9 @@ public class ZooKeeperServer implements SessionExpirer, ServerStats.Provider {
                 // Always treat packet from the client as a possible
                 // local request.
                 setLocalSessionFlag(si);
+                /**
+                 * 如果是{@link org.apache.zookeeper.server.quorum.LeaderZooKeeperServer}则提交到自己的processor链式处理
+                 */
                 submitRequest(si);
             }
         }

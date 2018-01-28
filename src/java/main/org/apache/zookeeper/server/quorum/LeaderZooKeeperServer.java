@@ -68,6 +68,10 @@ public class LeaderZooKeeperServer extends QuorumZooKeeperServer {
 
     // 其中commitProcessor是异步的
     // proposalRequestProcessor内部有个SyncRequestProcessor也是异步的
+    /**
+     * leader处理请求的时候，不管是follower,observer还是直接来自客户端的请求，都是走的同一个processor链式
+     * 即凡是写请求，都会发起提议的 proposalProcessor
+     */
     protected void setupRequestProcessors() {
         RequestProcessor finalProcessor = new FinalRequestProcessor(this);
         RequestProcessor toBeAppliedProcessor = new Leader.ToBeAppliedRequestProcessor(finalProcessor, getLeader());

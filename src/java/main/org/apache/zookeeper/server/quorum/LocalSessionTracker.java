@@ -25,6 +25,7 @@ import org.apache.zookeeper.server.ZooKeeperServerListener;
 /**
  * Local session tracker.
  */
+// 唯一的不同就是不支持全局session
 public class LocalSessionTracker extends SessionTrackerImpl {
     public LocalSessionTracker(SessionExpirer expirer,
             ConcurrentMap<Long, Integer> sessionsWithTimeouts,

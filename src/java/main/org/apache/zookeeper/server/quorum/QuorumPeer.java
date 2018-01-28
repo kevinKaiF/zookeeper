@@ -622,7 +622,8 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     }
 
     private ServerState state = ServerState.LOOKING;
-    
+
+    // 是否参与下次投票
     private boolean reconfigFlag = false; // indicates that a reconfig just committed
 
     public synchronized void setPeerState(ServerState newState){
@@ -643,8 +644,22 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
 
     DatagramSocket udpSocket;
 
+    /**
+     * clientPort=2181
+
+     server.0=192.168.1.100:2888:3888
+     server.1=192.168.1.101:2888:3888
+     server.2=192.168.1.102:2888:3888
+
+     通常2888是集群内部通信的端口号
+     3888是集群内部选举的端口号
+     clientPort是集群对外响应的端口号
+     */
+    // 议员地址就是配置中的第一个server地址
     private InetSocketAddress myQuorumAddr;
+    // 选举地址就是配置中的第二个server地址
     private InetSocketAddress myElectionAddr = null;
+    // 响应客户端地址的server地址，由clientPort或clientAddress配置
     private InetSocketAddress myClientAddr = null;
 
     /**
@@ -1156,7 +1171,10 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                         LOG.warn("Unexpected exception",e );
                     } finally {
                         observer.shutdown();
-                        setObserver(null);  
+                        setObserver(null);
+                        /**
+                         * 若reconfigFlag为false,更新为LOOKING状态，准备选举
+                         */
                        updateServerState();
                     }
                     break;
@@ -1168,8 +1186,14 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                     } catch (Exception e) {
                        LOG.warn("Unexpected exception",e);
                     } finally {
+                        /**
+                         * 关闭客户端的所有连接
+                         */
                        follower.shutdown();
                        setFollower(null);
+                        /**
+                         * 若reconfigFlag为false,更新为LOOKING状态，准备选举
+                         */
                        updateServerState();
                     }
                     break;
@@ -1178,6 +1202,8 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                     try {
                         setLeader(makeLeader(logFactory));
                         leader.lead();
+                        // 如果走到这里说明leader.lead()发生异常了,比如集群有效节点少于一半，或者zxid溢出
+                        // 需要进行重新选举，即下一次while
                         setLeader(null);
                     } catch (Exception e) {
                         LOG.warn("Unexpected exception",e);
@@ -1186,6 +1212,9 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
                             leader.shutdown("Forcing shutdown");
                             setLeader(null);
                         }
+                        /**
+                         * 若reconfigFlag为false,更新为LOOKING状态，准备选举
+                         */
                         updateServerState();
                     }
                     break;

@@ -84,7 +84,9 @@ public class ClientCnxnSocketNIO extends ClientCnxnSocket {
                 if (incomingBuffer == lenBuffer) {
                     recvCount++;
                     readLength();
+                    // 如果还没有建立连接
                 } else if (!initialized) {
+                    // 读取客户端的sessionId
                     readConnectResult();
                     enableRead();
                     if (findSendablePacket(outgoingQueue,
@@ -106,6 +108,7 @@ public class ClientCnxnSocketNIO extends ClientCnxnSocket {
             }
         }
         if (sockKey.isWritable()) {
+            // 获取需要发送的请求数据包
             Packet p = findSendablePacket(outgoingQueue,
                     sendThread.tunnelAuthInProgress());
 
@@ -273,6 +276,7 @@ public class ClientCnxnSocketNIO extends ClientCnxnSocket {
     throws IOException {
         sockKey = sock.register(selector, SelectionKey.OP_CONNECT);
         boolean immediateConnect = sock.connect(addr);
+        // 如果连接成功
         if (immediateConnect) {
             sendThread.primeConnection();
         }
@@ -353,13 +357,18 @@ public class ClientCnxnSocketNIO extends ClientCnxnSocket {
         updateNow();
         for (SelectionKey k : selected) {
             SocketChannel sc = ((SocketChannel) k.channel());
+            // 首次连接
             if ((k.readyOps() & SelectionKey.OP_CONNECT) != 0) {
                 if (sc.finishConnect()) {
+                    // 更新lastSend，lastHeard，即请求最新的响应时间
                     updateLastSendAndHeard();
+                    // 更新本地地址和远端地址，因为与远端连接zk地址可能会变
                     updateSocketAddresses();
+                    // 首次连接需要发送session请求
                     sendThread.primeConnection();
                 }
             } else if ((k.readyOps() & (SelectionKey.OP_READ | SelectionKey.OP_WRITE)) != 0) {
+                // 处理IO
                 doIO(pendingQueue, cnxn);
             }
         }

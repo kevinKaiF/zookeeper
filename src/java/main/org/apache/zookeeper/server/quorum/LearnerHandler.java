@@ -666,6 +666,8 @@ public class LearnerHandler extends ZooKeeperThread {
                         si = new Request(null, sessionId, cxid, type, bb, qp.getAuthinfo());
                     }
                     si.setOwner(this);
+                    // 接收到follower,observer的REQUEST类型请求，交给leader的LeaderZookeeperServer处理
+                    // 直接commit到prepRequestProcessor进行处理
                     leader.zk.submitLearnerRequest(si);
                     break;
                 default:

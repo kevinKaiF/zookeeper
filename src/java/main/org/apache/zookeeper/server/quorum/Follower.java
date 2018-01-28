@@ -96,8 +96,10 @@ public class Follower extends Learner{
                     processPacket(qp);
                 }
             } catch (Exception e) {
+                // 如果与leader通信出现异常，比如leader发现zxid溢出，关闭服务器
                 LOG.warn("Exception when following the leader", e);
                 try {
+                    // 关闭与leader的socket请求
                     sock.close();
                 } catch (IOException e1) {
                     e1.printStackTrace();

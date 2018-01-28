@@ -617,13 +617,18 @@ public class Leader {
                     }
 
                     // check leader running status
+                    /**
+                     * 如果shutdown需要结束{@link #lead()}进行下次选举
+                     */
                     if (!this.isRunning()) {
                         // set shutdown flag
                         shutdownMessage = "Unexpected internal error";
                         break;
                     }
 
-                    // 如果集群可用节点少于一半
+                    /**
+                     * 如果集群可用节点少于一半要结束{@link #lead()}进行下次选举
+                     */
                     if (!tickSkip && !syncedAckSet.hasAllQuorums()) {
                         // Lost quorum of last committed and/or last proposed
                         // config, set shutdown flag
@@ -639,6 +644,7 @@ public class Leader {
                     f.ping();
                 }
             }
+
             if (shutdownMessage != null) {
                 shutdown(shutdownMessage);
                 // leader goes in looking state
@@ -663,6 +669,7 @@ public class Leader {
         LOG.info("Shutdown called",
                 new Exception("shutdown Leader! reason: " + reason));
 
+        // 关闭接收follower,observer的请求线程
         if (cnxAcceptor != null) {
             cnxAcceptor.halt();
         }
@@ -671,15 +678,19 @@ public class Leader {
         self.setZooKeeperServer(null);
         self.adminServer.setZooKeeperServer(null);
         try {
+            // 关闭接收follower,observer的server
             ss.close();
         } catch (IOException e) {
             LOG.warn("Ignoring unexpected exception during close",e);
         }
+        // 关闭所有客户端的连接
         self.closeAllConnections();
         // shutdown the previous zk
+        // 关闭leaderZookeeperServer，不会处理来自客户端的请求
         if (zk != null) {
             zk.shutdown();
         }
+        // 关闭follower,observer的请求的处理线程
         synchronized (learners) {
             for (Iterator<LearnerHandler> it = learners.iterator(); it
                     .hasNext();) {
@@ -688,6 +699,7 @@ public class Leader {
                 f.shutdown();
             }
         }
+        // leader标记为shutdown
         isShutdown = true;
     }
 
@@ -703,10 +715,12 @@ public class Leader {
     
     private long getDesignatedLeader(Proposal reconfigProposal, long zxid) {
        //new configuration
+        // 重新配置的新的投票
        Proposal.QuorumVerifierAcksetPair newQVAcksetPair = reconfigProposal.qvAcksetPairs.get(reconfigProposal.qvAcksetPairs.size()-1);        
        
        //check if I'm in the new configuration with the same quorum address - 
-       // if so, I'll remain the leader    
+       // if so, I'll remain the leader
+       // 如果当前leader仍然在新的投票里面，那么返回当前的leader的serverId
        if (newQVAcksetPair.getQuorumVerifier().getVotingMembers().containsKey(self.getId()) && 
                newQVAcksetPair.getQuorumVerifier().getVotingMembers().get(self.getId()).addr.equals(self.getQuorumAddress())){  
            return self.getId();
@@ -897,7 +911,8 @@ public class Leader {
             LOG.debug("Count for zxid: 0x{} is {}",
                     Long.toHexString(zxid), p.ackSet.size());
         }*/
-        
+
+        // 尝试收集follower对提议的ack，是否一半ack
         boolean hasCommitted = tryToCommit(p, zxid, followerAddr);
 
         // If p is a reconfiguration, multiple other operations may be ready to be committed,
@@ -909,6 +924,7 @@ public class Leader {
        // concurrent reconfigs are allowed, this can happen and then we need to check whether some pending
         // ops may already have enough acks and can be committed, which is what this code does.
 
+        // 如果有一半ack,且是reconfig??
         if (hasCommitted && p.request!=null && p.request.getHdr().getType() == OpCode.reconfig){
                long curZxid = zxid;
            while (allowedToCommit && hasCommitted && p!=null){
@@ -1016,6 +1032,7 @@ public class Leader {
         }
     }
 
+    // 最新commit的zxid
     long lastCommitted = -1;
 
     /**

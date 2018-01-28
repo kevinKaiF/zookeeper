@@ -314,16 +314,19 @@ public class QuorumPeerConfig {
             dataLogDir = dataDir;
         }
 
+        // 这个clientPort是必须配置的，用于响应客户端的端口号
         if (clientPort == 0) {
             LOG.info("clientPort is not set");
             if (clientPortAddress != null) {
                 throw new IllegalArgumentException("clientPortAddress is set but clientPort is not set");
             }
         } else if (clientPortAddress != null) {
+            // 如果定义了客户端的响应地址
             this.clientPortAddress = new InetSocketAddress(
                     InetAddress.getByName(clientPortAddress), clientPort);
             LOG.info("clientPortAddress is {}", this.clientPortAddress.toString());
         } else {
+            // 如果没有配置客户端的响应地址，默认使用本机
             this.clientPortAddress = new InetSocketAddress(clientPort);
             LOG.info("clientPortAddress is {}", this.clientPortAddress.toString());
         }
@@ -349,7 +352,9 @@ public class QuorumPeerConfig {
             throw new IllegalArgumentException("tickTime is not set");
         }
 
+        // 如果minSessionTimeout没设置，默认的minSessionTimeout就是2个tickTime
         minSessionTimeout = minSessionTimeout == -1 ? tickTime * 2 : minSessionTimeout;
+        // 如果maxSessionTimeout没设置，默认的maxSessionTimeout就是20个tickTime
         maxSessionTimeout = maxSessionTimeout == -1 ? tickTime * 20 : maxSessionTimeout;
 
         if (minSessionTimeout > maxSessionTimeout) {

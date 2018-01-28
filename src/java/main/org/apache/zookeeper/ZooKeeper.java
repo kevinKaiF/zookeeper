@@ -570,6 +570,7 @@ public class ZooKeeper implements AutoCloseable {
          * watch on the node
          * @return true if the watch should be added, otw false
          */
+        // rc==0表示响应正常
         protected boolean shouldAddWatch(int rc) {
             return rc == 0;
         }
@@ -857,6 +858,7 @@ public class ZooKeeper implements AutoCloseable {
      * @throws IllegalArgumentException
      *             if an invalid chroot path is specified
      */
+    // 客户端与zk集群的连接
     public ZooKeeper(String connectString, int sessionTimeout, Watcher watcher,
             boolean canBeReadOnly, HostProvider aHostProvider,
             ZKClientConfig clientConfig) throws IOException {
@@ -2905,6 +2907,11 @@ public class ZooKeeper implements AutoCloseable {
         return cnxn.sendThread.getClientCnxnSocket().getLocalSocketAddress();
     }
 
+    /**
+     * 反射构建ClientCnxnSocket，可能是Nio,可能是Netty
+     * @return
+     * @throws IOException
+     */
     private ClientCnxnSocket getClientCnxnSocket() throws IOException {
         String clientCnxnSocketName = getClientConfig().getProperty(
                 ZKClientConfig.ZOOKEEPER_CLIENT_CNXN_SOCKET);
