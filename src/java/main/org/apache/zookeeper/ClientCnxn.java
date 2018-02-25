@@ -1019,6 +1019,10 @@ public class ClientCnxn {
                                                        childWatchesBatch);
                         RequestHeader header = new RequestHeader(-8, OpCode.setWatches);
                         // 将上次的watcher发送给zk server
+                        // 如果之前的zk服务端挂掉，zk客户端会将上次连接的内存数据再次发送给新的zk服务端
+                        // 新的zk服务端会重新记录watcher
+                        // 也就是整个watcher的触发和维护是local的，不是整个集群
+                        // 这里的local就是与zk客户端相连的zk服务器维护
                         Packet packet = new Packet(header, new ReplyHeader(), sw, null, null);
                         outgoingQueue.addFirst(packet);
                     }
@@ -1039,6 +1043,12 @@ public class ClientCnxn {
             }
         }
 
+        /**
+         * 处理成完整路径
+         *
+         * @param paths
+         * @return
+         */
         private List<String> prependChroot(List<String> paths) {
             if (chrootPath != null && !paths.isEmpty()) {
                 for (int i = 0; i < paths.size(); ++i) {

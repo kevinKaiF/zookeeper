@@ -59,6 +59,7 @@ public class LearnerSessionTracker extends UpgradeableSessionTracker {
     private final AtomicLong nextSessionId = new AtomicLong();
 
     private final boolean localSessionsEnabled;
+    // 这个session是从zkDB中获取的
     private final ConcurrentMap<Long, Integer> globalSessionsWithTimeouts;
 
     public LearnerSessionTracker(SessionExpirer expirer,
