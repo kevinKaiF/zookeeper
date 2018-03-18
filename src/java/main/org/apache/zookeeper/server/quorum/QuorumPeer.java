@@ -641,7 +641,7 @@ public class QuorumPeer extends ZooKeeperThread implements QuorumStats.Provider 
     }
 
     DatagramSocket udpSocket;
-
+    // 本机与客户端的通信地址
     private InetSocketAddress myQuorumAddr;
     private InetSocketAddress myElectionAddr = null;
     private InetSocketAddress myClientAddr = null;
