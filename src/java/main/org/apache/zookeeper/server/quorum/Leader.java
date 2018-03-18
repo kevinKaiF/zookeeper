@@ -18,29 +18,6 @@
 
 package org.apache.zookeeper.server.quorum;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.net.BindException;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketAddress;
-import java.net.SocketException;
-import java.nio.ByteBuffer;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
-
 import org.apache.jute.BinaryOutputArchive;
 import org.apache.zookeeper.ZooDefs.OpCode;
 import org.apache.zookeeper.common.Time;
@@ -53,6 +30,16 @@ import org.apache.zookeeper.server.quorum.flexible.QuorumVerifier;
 import org.apache.zookeeper.server.util.ZxidUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.net.*;
+import java.nio.ByteBuffer;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 /**
@@ -440,6 +427,7 @@ public class Leader {
             // new followers.
             cnxAcceptor = new LearnerCnxAcceptor();
             cnxAcceptor.start();
+            // 阻塞等待获取集群最新的epoch
             long epoch = getEpochToPropose(self.getId(), self.getAcceptedEpoch());
             // 更新zxid
             zk.setZxid(ZxidUtils.makeZxid(epoch, 0));
@@ -502,7 +490,8 @@ public class Leader {
             /**
              * 对应{@link Learner#registerWithLeader(int)}的Leader.ACKEPOCH
              */
-             waitForEpochAck(self.getId(), leaderStateSummary);
+
+            waitForEpochAck(self.getId(), leaderStateSummary);
              self.setCurrentEpoch(epoch);    
             
              try {
@@ -510,6 +499,25 @@ public class Leader {
                   * 对应{@link Learner#syncWithLeader(long)}的Leader.NEWLEADER的ACK
                   */
                  waitForNewLeaderAck(self.getId(), zk.getZxid(), LearnerType.PARTICIPANT);
+                 /**
+                  * 这一段非常有意思！
+                  * 1.leader（LearnHandler）阻塞等待获取follower,observer的注册信息，serverId,zxid，通过接收到的zxid
+                  * 计算出epoch与leader自己的epoch比较，如果收到的epoch大于等于leader自己的epoch，则
+                  * leader将epoch更新为接收到的epoch+1。而整个过程是多线程阻塞等待follower,observer的
+                  * 注册，超时时间范围是在initLimit*ticket之内。如果某个follower,observer超时了，leader
+                  * 会关闭与此对应socket连接，其实是关闭LearnHandler这个处理follower,observer这个线程。
+                  * 如果成功（即获取到集群一半以上的注册），则更新leader最新的epoch。每个LearnHandler线程
+                  * 会将最新的zxid发送给follower,observer，而leader自己则会继续执行{@link #lead}方法，并
+                  * 更新集群状态信息
+                  * 2.leader（LearnHandler）再次阻塞等待follower,observer对最新的epoch的ack。LearnHandler成功
+                  * 接收到follower,observer对最新的epoch的ack确认，则会对follower,observer发送zxid的同步，
+                  * follower,observer接收到leader的zxid，会对日志做DIFF(相同不用处理)，SNAP(日志可能有丢失)，
+                  * TRUN(截断处理)
+                  * 3.leader（LearnHandler）再次阻塞等待follower,observer的ack确认。并将follower,observer的节点信息
+                  * 更新到leader最新的集群信息中
+                  *
+                  * 至此，整个集群信息全部同步完毕，leader,follower,observer可以启动zkServer，对外提供服务了
+                  */
              } catch (InterruptedException e) {
                  shutdown("Waiting for a quorum of followers, only synced with sids: [ "
                          + newLeaderProposal.ackSetsToString() + " ]");

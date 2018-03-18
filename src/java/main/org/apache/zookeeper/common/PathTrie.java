@@ -263,6 +263,7 @@ public class PathTrie {
         int i = 1;
         String part = null;
         StringBuilder sb = new StringBuilder();
+        // 记录最max的下标
         int lastindex = -1;
         while((i < pathComponents.length)) {
             if (parent.getChild(pathComponents[i]) != null) {

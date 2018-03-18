@@ -413,6 +413,7 @@ public class LearnerHandler extends ZooKeeperThread {
              */
             long newEpoch = leader.getEpochToPropose(this.getSid(), lastAcceptedEpoch);
             // 设置新的zxid
+            // 重要：将最新的newEpoch，newLeaderZxid通知给集群所有的Follower,Observer
             long newLeaderZxid = ZxidUtils.makeZxid(newEpoch, 0);
             // 兼容老版本zk?
             if (this.getVersion() < 0x10000) {
