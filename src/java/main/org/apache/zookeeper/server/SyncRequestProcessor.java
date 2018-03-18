@@ -46,6 +46,10 @@ import java.util.concurrent.LinkedBlockingQueue;
  *             be null. This change the semantic of txnlog on the observer
  *             since it only contains committed txns.
  */
+
+/**
+ * 处理来自follower,observer，或者leader本身的request记录到日志
+ */
 public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
         RequestProcessor {
     private static final Logger LOG = LoggerFactory.getLogger(SyncRequestProcessor.class);
@@ -168,6 +172,9 @@ public class SyncRequestProcessor extends ZooKeeperCriticalThread implements
                         // iff this is a read, and there are no pending
                         // flushes (writes), then just pass this to the next
                         // processor
+                        /**
+                         * {@link org.apache.zookeeper.server.quorum.AckRequestProcessor}
+                         */
                         if (nextProcessor != null) {
                             nextProcessor.processRequest(si);
                             if (nextProcessor instanceof Flushable) {

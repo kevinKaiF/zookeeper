@@ -259,7 +259,8 @@ public class ZKDatabase {
             } catch (IOException e) {
                 LOG.error("This really should be impossible", e);
             }
-            // 发起提议数据包
+            // 发起提议数据包,会保存committedLog，并记录当前包的zxid到maxCommittedLog
+            // 这个提议数据zxid不仅保存到内存并已经持久化到磁盘
             QuorumPacket pp = new QuorumPacket(Leader.PROPOSAL, request.zxid,
                     baos.toByteArray(), null);
             Proposal p = new Proposal();
@@ -276,6 +277,10 @@ public class ZKDatabase {
         return snapshotSizeFactor;
     }
 
+    /**
+     * 读取文件的字节数大小
+     * @return
+     */
     public long calculateTxnLogSizeLimit() {
         long snapSize = 0;
         try {

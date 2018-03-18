@@ -37,6 +37,7 @@ import org.slf4j.LoggerFactory;
 public class LeaderSessionTracker extends UpgradeableSessionTracker {
     private static final Logger LOG = LoggerFactory.getLogger(LeaderSessionTracker.class);
 
+    // 配置localSessionsEnabled 是否需要启用本地session,默认是false
     private final boolean localSessionsEnabled;
     private final SessionTrackerImpl globalSessionTracker;
 

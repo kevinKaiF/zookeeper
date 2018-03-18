@@ -364,6 +364,9 @@ public class CommitProcessor extends ZooKeeperCriticalThread implements
 
         public void doWork() throws RequestProcessorException {
             try {
+                /**
+                 * {@link ToBeAppliedRequestProcessor}
+                 */
                 nextProcessor.processRequest(request);
             } finally {
                 if (numRequestsProcessing.decrementAndGet() == 0){

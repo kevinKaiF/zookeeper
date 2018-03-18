@@ -101,8 +101,13 @@ public class FinalRequestProcessor implements RequestProcessor {
             ZooTrace.logRequest(LOG, traceMask, 'E', request, "");
         }
         ProcessTxnResult rc = null;
+        /**
+         * 这里的操作是先将请求的持久化到日志，
+         * 如果是写请求添加到committedLog队列
+         */
         synchronized (zks.outstandingChanges) {
             // Need to process local session requests
+            // 处理请求，并将zxid持久化到日志
             rc = zks.processTxn(request);
 
             // request.hdr is set for write requests, which are the only ones
@@ -132,7 +137,7 @@ public class FinalRequestProcessor implements RequestProcessor {
             // 凡是修改数据的请求，需要投票提议
             // 如果是写操作的请求，需要提议
             if (request.isQuorum()) {
-                // 添加到提议？
+                // 添加到提议，保存到内存
                 zks.getZKDatabase().addCommittedProposal(request);
             }
         }

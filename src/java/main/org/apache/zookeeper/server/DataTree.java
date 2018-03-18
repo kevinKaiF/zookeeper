@@ -1505,6 +1505,7 @@ public class DataTree {
                 // 如果节点不存在，则触发NodeDeleted事件
                 watcher.process(new WatchedEvent(EventType.NodeDeleted, 
                             KeeperState.SyncConnected, path));
+                // 如果最后修改子节点的zxid大于当前zxid，说明子节点发生了修改
             } else if (node.stat.getPzxid() > relativeZxid) {
                 // 如果最后修改子节点的pzxid大于给定的relativeZxid，则触发NodeChildrenChanged事件
                 watcher.process(new WatchedEvent(EventType.NodeChildrenChanged, 

@@ -151,6 +151,7 @@ public class Learner {
      * @throws IOException
      */
     void readPacket(QuorumPacket pp) throws IOException {
+        // 如果leader关闭了服务器，则会抛出IO异常
         synchronized (leaderIs) {
             leaderIs.readRecord(pp, "packet");
         }
@@ -425,9 +426,10 @@ public class Learner {
             // we are now going to start getting transactions to apply followed by an UPTODATE
             outerLoop:
             while (self.isRunning()) {
+                // 读取leader的数据
                 readPacket(qp);
                 switch(qp.getType()) {
-                    // 如果是发起了提议
+                    // 如果接收到了leader的提议
                 case Leader.PROPOSAL:
                     PacketInFlight pif = new PacketInFlight();
                     pif.hdr = new TxnHeader();
@@ -448,9 +450,10 @@ public class Learner {
                     // 添加到待提交的数据包，异步处理
                     packetsNotCommitted.add(pif);
                     break;
-                    // 如果到了commit
+                    // 如果接收到了leader的commit
                 case Leader.COMMIT:
                 case Leader.COMMITANDACTIVATE:
+                    //
                     pif = packetsNotCommitted.peekFirst();
                     if (pif.hdr.getZxid() == qp.getZxid() && qp.getType() == Leader.COMMITANDACTIVATE) {
                         // 更新本机集群配置信息
@@ -461,6 +464,7 @@ public class Learner {
                             throw new Exception("changes proposed in reconfig");
                         }
                     }
+                    // 如果不是DIFF
                     if (!writeToTxnLog) {
                         if (pif.hdr.getZxid() != qp.getZxid()) {
                             LOG.warn("Committing " + qp.getZxid() + ", but next proposal is " + pif.hdr.getZxid());
@@ -530,11 +534,16 @@ public class Learner {
                     self.setZooKeeperServer(zk);
                     self.adminServer.setZooKeeperServer(zk);
                     break outerLoop;
-                case Leader.NEWLEADER: // Getting NEWLEADER here instead of in discovery 
+                case Leader.NEWLEADER: // Getting NEWLEADER here instead of in discovery
                     // means this is Zab 1.0
+                    // 接收到leader的NEWLEADER
+                    /**
+                     * 对应{@link LearnerHandler#run()}的Leader.NEWLEADER
+                     */
                    LOG.info("Learner received NEWLEADER message");
                    if (qp.getData()!=null && qp.getData().length > 1) {
-                       try {                       
+                       try {
+                           // 读取leader的集群信息，保存到本地
                            QuorumVerifier qv = self.configFromString(new String(qp.getData()));
                            self.setLastSeenQuorumVerifier(qv, true);
                            newLeaderQV = qv;
@@ -543,13 +552,16 @@ public class Learner {
                        }
                    }
 
+                   // 如果与leader不是DIFF，则需要打印本地快照
                    if (snapshotNeeded) {
                        zk.takeSnapshot();
                    }
-                   
+
+                   // 记录最新的epoch
                     self.setCurrentEpoch(newEpoch);
                     writeToTxnLog = true; //Anything after this needs to go to the transaction log, not applied directly in memory
                     isPreZAB1_0 = false;
+                    // 发送ack
                     writePacket(new QuorumPacket(Leader.ACK, newLeaderZxid, null, null), true);
                     break;
                 }
@@ -632,6 +644,7 @@ public class Learner {
         // Send back the ping with our session data
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
         DataOutputStream dos = new DataOutputStream(bos);
+        // 读取follower,observer本身的sessionId,sessionTimeout,发送给leader
         Map<Long, Integer> touchTable = zk.getTouchSnapshot();
         for (Entry<Long, Integer> entry : touchTable.entrySet()) {
             dos.writeLong(entry.getKey());

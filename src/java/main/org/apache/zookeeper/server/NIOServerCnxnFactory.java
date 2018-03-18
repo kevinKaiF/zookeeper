@@ -704,6 +704,13 @@ public class NIOServerCnxnFactory extends ServerCnxnFactory {
     private final Set<SelectorThread> selectorThreads =
         new HashSet<SelectorThread>();
 
+    /**
+     *
+     * @param addr  这个地址是clientPortAddress
+     * @param maxcc
+     * @param secure
+     * @throws IOException
+     */
     @Override
     public void configure(InetSocketAddress addr, int maxcc, boolean secure) throws IOException {
         if (secure) {

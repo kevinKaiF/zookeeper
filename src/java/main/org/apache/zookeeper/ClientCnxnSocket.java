@@ -86,6 +86,7 @@ abstract class ClientCnxnSocket {
         now = Time.currentElapsedTime();
     }
 
+    // 请求花费的时间
     int getIdleRecv() {
         return (int) (now - lastHeard);
     }
@@ -149,6 +150,7 @@ abstract class ClientCnxnSocket {
         }
 
         this.sessionId = conRsp.getSessionId();
+        // 更新本地session配置
         sendThread.onConnected(conRsp.getTimeOut(), this.sessionId,
                 conRsp.getPasswd(), isRO);
     }
